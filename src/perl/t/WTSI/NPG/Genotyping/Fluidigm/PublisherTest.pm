@@ -54,7 +54,7 @@ use strict;
 use warnings;
 use DateTime;
 
-use base qw(Test::Class);
+use base qw(WTSI::NPG::Test);
 use Test::More tests => 86;
 use Test::Exception;
 
@@ -99,7 +99,6 @@ sub make_fixture : Test(setup) {
 sub teardown : Test(teardown) {
   my $irods = WTSI::NPG::iRODS->new;
   $irods->remove_collection($irods_tmp_coll);
-
   undef $resultset;
 }
 
@@ -207,8 +206,13 @@ sub publish_sqscp_no_id : Test(19) {
      warehouse_db     => $whdb);
 
   my @addresses_to_publish = qw(S01);
-  my $num_published = $publisher->publish($irods_tmp_coll,
-                                          @addresses_to_publish);
+  my $num_published;
+  do {
+      local *STDERR;
+      open (STDERR, '>', '/dev/null'); # suppress warning output to STDERR
+      $num_published = $publisher->publish($irods_tmp_coll,
+                                           @addresses_to_publish);
+  };
   cmp_ok($num_published, '==', scalar @addresses_to_publish,
          "Number of chunks published");
 
@@ -453,7 +457,8 @@ sub test_metadata {
     ok($data_object->get_avu('dcterms:modified'), 'Has dcterms:modified');
   }
   else {
-    ok(!$data_object->get_avu('dcterms:modified'), 'Has no dcterms:modified');
+    my @exists = $data_object->find_in_metadata('dcterms:modified');
+    ok(scalar(@exists)==0, 'Has no dcterms:modified');
   }
 
   foreach my $avu (@$expected_metadata) {

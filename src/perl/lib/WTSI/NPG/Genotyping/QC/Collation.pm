@@ -9,6 +9,7 @@ package WTSI::NPG::Genotyping::QC::Collation;
 use strict;
 use warnings;
 use Carp;
+use File::Slurp qw(read_file);
 use IO::Uncompress::Gunzip qw($GunzipError); # for duplicate_full.txt.gz
 use JSON;
 use WTSI::NPG::Genotyping::Database::Pipeline;
@@ -16,7 +17,6 @@ use WTSI::NPG::Genotyping::QC::QCPlotShared qw(getDatabaseObject
                                                getPlateLocationsFromPath
                                                meanSd
                                                readQCMetricInputs
-                                               readFileToString
                                                readSampleData);
 use Exporter;
 
@@ -325,6 +325,11 @@ sub includedSampleCsv {
             else { $metricResult[0] = 'Fail'; }
             if ($metric eq $GENDER_NAME) { # use human-readable gender names
                 $metricResult[2] = $GENDERS[$metricResult[2]];
+                # 'supplied' Plink gender may be -9 or other arbitrary number
+                my $totalCodes = scalar @GENDERS;
+                if ($metricResult[3] < 0 || $metricResult[3] >= $totalCodes){
+                    $metricResult[3] = $totalCodes - 1; # 'not available'
+                }
                 $metricResult[3] = $GENDERS[$metricResult[3]];
             }
             push (@fields, @metricResult);
@@ -452,7 +457,7 @@ sub readDuplicates {
 sub readMetricThresholds {
     # exportable convenience method to read metric thresholds from JSON config
     my $configPath = shift;
-    my %config = %{decode_json(readFileToString($configPath))};
+    my %config = %{decode_json(read_file($configPath))};
     my %thresholds = %{$config{'Metrics_thresholds'}};
     return \%thresholds;
 }
@@ -518,7 +523,7 @@ sub resultsHighMafHet {
 sub resultsIdentity {
     my $inputDir = shift;
     my $inPath = $inputDir.'/'.$FILENAMES{'identity'};
-    my %data = %{decode_json(readFileToString($inPath))};
+    my %data = %{decode_json(read_file($inPath))};
     return $data{'results'};
 }
 
@@ -537,7 +542,7 @@ sub resultsMafHet {
         carp "Omitting MAF heterozygosity; cannot read input \"$inPath\": $!";
         return 0;
     }
-    my %data = %{decode_json(readFileToString($inPath))};
+    my %data = %{decode_json(read_file($inPath))};
     my %results;
     foreach my $sample (keys(%data)) {
         # TODO modify output format of het_by_maf.py
@@ -691,11 +696,13 @@ sub collate {
     else {
         @metricNames = keys(%thresholdConfig);
     }
-    %config = %{decode_json(readFileToString($configPath))};
+    %config = %{decode_json(read_file($configPath))};
     %FILENAMES = %{$config{'collation_names'}};
 
-    # 0) reprocess duplicate results for given threshold
-    processDuplicates($inputDir, $thresholdConfig{$DUP_NAME});
+    # 0) reprocess duplicate results for given threshold (if any)
+    if (defined($thresholdConfig{$DUP_NAME})) {
+        processDuplicates($inputDir, $thresholdConfig{$DUP_NAME});
+    }
 
     # 1) find metric values (and write to file if required)
     my $metricResultsRef = findMetricResults($inputDir, \@metricNames);

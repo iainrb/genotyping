@@ -6,7 +6,7 @@ use strict;
 use warnings;
 use DateTime;
 
-use base qw(Test::Class);
+use base qw(WTSI::NPG::Test);
 use Test::More tests => 8;
 use Test::Exception;
 
@@ -46,3 +46,5 @@ sub samples : Test(2) {
 
   cmp_ok(scalar @{$manifest2->samples}, '==', 21);
 }
+
+1;

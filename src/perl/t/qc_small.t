@@ -13,8 +13,8 @@ use File::Temp qw/tempdir/;
 use FindBin qw($Bin);
 use JSON;
 
-use Test::More tests => 49;
-use WTSI::NPG::Genotyping::QC::QCPlotShared qw/readFileToString readSampleInclusion/;
+use Test::More tests => 53;
+
 use WTSI::NPG::Genotyping::QC::QCPlotTests qw(jsonPathOK pngPathOK xmlPathOK);
 
 my $testName = 'small_test';
@@ -34,6 +34,7 @@ my $config = "$bin/../etc/qc_config.json";
 my $filterConfig = $data_dir."zcall_prefilter_test.json";
 my $vcf = $data_dir."small_test_plex.vcf";
 my $plexManifest = $data_dir."small_test_fake_manifest.tsv";
+my $sampleJson = $data_dir."small_test_sample.json";
 my $piperun = "pipeline_run"; # run name in pipeline DB
 my ($cmd, $status);
 
@@ -60,10 +61,10 @@ if (-e $outDir) {
 print "Testing dataset $testName.\n";
 
 ## test identity check
-$status = system("$bin/check_identity_bed.pl --outdir $outDir --config $config  --plink $plink --db $dbfile");
-is($status, 0, "check_identity_bed.pl exit status");
+$status = system("$bin/check_identity_simple.pl --outdir $outDir --config $config  --plink $plink --db $dbfile");
+is($status, 0, "check_identity_simple.pl exit status");
 
-## WIP identity check script is tested in WTSI::NPG::Genotyping::QC_wip::Check::IdentityTest
+## Bayesian identity check script is tested in WTSI::NPG::Genotyping::QC::BayesianIdentity::IdentityTest
 
 ## test call rate & heterozygosity computation
 my $crHetFinder = "snp_af_sample_cr_bed";
@@ -144,9 +145,19 @@ print "\tRemoved output from previous tests; now testing main bootstrap script.\
 
 ## check run_qc.pl bootstrap script
 # omit --title argument, to test default title function
-$cmd = "$bin/run_qc.pl --output-dir=$outDir --dbpath=$dbfile --sim=$sim $plink --run=$piperun --inipath=$iniPath --mafhet --config=$config --vcf=$vcf --plex-manifest $plexManifest";
-
-is(system($cmd), 0, "run_qc.pl bootstrap script exit status");
+my @args = ("--output-dir=$outDir",
+            "--dbpath=$dbfile",
+            "--sim=$sim",
+            "--run=$piperun",
+            "--inipath=$iniPath",
+            "--config=$config",
+            "--vcf=$vcf,$vcf",
+            "--plex-manifests=$plexManifest",
+            "--sample-json=$sampleJson",
+            "--mafhet",
+            "--plink=$plink");
+is(system("$bin/run_qc.pl ".join(" ", @args)), 0,
+   "run_qc.pl bootstrap script exit status");
 
 ## check work-in-progress output files
 my $outDirWip = $outDir."/qc_wip";
@@ -175,10 +186,25 @@ ok($heatMapsOK, "Plate heatmap outputs OK");
 ok(-r $outDir.'/pipeline_summary.csv', "CSV summary found");
 ok(-r $outDir.'/pipeline_summary.pdf', "PDF summary found");
 
+
+## check that run_qc.pl dies with incorrect arguments for alternate ID check
+system("rm -Rf $outDir/*"); # remove output from previous tests
+system("cp $dbfileMasterA $tempdir");
+my $cmd_base = "$bin/run_qc.pl --output-dir=$outDir --dbpath=$dbfile --sim=$sim --plink=$plink --run=$piperun --inipath=$iniPath --mafhet --config=$config";
+isnt(system($cmd_base." --vcf $vcf 2> /dev/null"), 0,
+     'Non-zero exit for run_qc.pl with --vcf but not --plex-manifest');
+ok(!(-e $outDir.'/pipeline_summary.csv'), "CSV summary not found");
+
+system("rm -Rf $outDir/*"); # remove output from previous tests
+system("cp $dbfileMasterA $tempdir");
+isnt(system($cmd_base." --plex-manifests $plexManifest 2> /dev/null"), 0,
+     'Non-zero exit for run_qc.pl with --plex-manifest but not --vcf');
+ok(!(-e $outDir.'/pipeline_summary.csv'), "CSV summary not found");
+
 ## run_qc.pl again, without the arguments for alternate identity check
 system("rm -Rf $outDir/*"); # remove output from previous tests
 system("cp $dbfileMasterA $tempdir");
-$cmd = "$bin/run_qc.pl --output-dir=$outDir --dbpath=$dbfile --sim=$sim $plink --run=$piperun --inipath=$iniPath --mafhet --config=$config";
+$cmd = "$bin/run_qc.pl --output-dir=$outDir --dbpath=$dbfile --sim=$sim --plink=$plink --run=$piperun --inipath=$iniPath --mafhet --config=$config";
 
 is(system($cmd), 0,
    "run_qc.pl bootstrap script exit status, no alternate identity check");

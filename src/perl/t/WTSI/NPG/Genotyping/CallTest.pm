@@ -9,9 +9,9 @@ use warnings;
 use Log::Log4perl;
 use List::AllUtils qw(all);
 
-use base qw(Test::Class);
+use base qw(WTSI::NPG::Test);
 use Test::Exception;
-use Test::More tests => 64;
+use Test::More tests => 69;
 
 Log::Log4perl::init('./etc/log4perl_tests.conf');
 
@@ -27,7 +27,28 @@ sub require : Test(1) {
   require_ok('WTSI::NPG::Genotyping::Call');
 }
 
-sub constructor : Test(7) {
+
+sub clone : Test(4) {
+  my $snpset = WTSI::NPG::Genotyping::SNPSet->new("$data_path/$data_file");
+
+  my $callset_name = "test_callset_name";
+  my $qscore = 42;
+  my $call = WTSI::NPG::Genotyping::Call->new
+    (genotype     => 'TG',
+     snp          => $snpset->named_snp('rs11096957'),
+     callset_name => $callset_name,
+     qscore       => $qscore);
+
+  is('TG', $call->clone->genotype, 'Cloned call');
+  ok($call->snp->name eq $call->clone->snp->name,
+     'SNP name preserved by cloning');
+  ok($call->clone->callset_name eq $callset_name,
+     "Callset name preserved by cloning");
+  ok($call->clone->qscore eq $qscore,
+     "Qscore preserved by cloning");
+}
+
+sub constructor : Test(6) {
   my $snpset = WTSI::NPG::Genotyping::SNPSet->new("$data_path/$data_file");
 
   new_ok('WTSI::NPG::Genotyping::Call',
@@ -217,16 +238,24 @@ sub is_complement : Test(8) {
      'Is complement 4');
 }
 
-sub complement : Test(3) {
+sub complement : Test(5) {
   my $snpset = WTSI::NPG::Genotyping::SNPSet->new("$data_path/$data_file");
 
+  my $callset_name = "test_callset_name";
+  my $qscore = 42;
   my $call = WTSI::NPG::Genotyping::Call->new
-    (genotype => 'TG',
-     snp      => $snpset->named_snp('rs11096957'));
+    (genotype     => 'TG',
+     snp          => $snpset->named_snp('rs11096957'),
+     callset_name => $callset_name,
+     qscore       => $qscore);
 
   is('AC', $call->complement->genotype, 'Complement call');
   ok(!$call->is_complement, 'Is not complemented');
   ok($call->complement->is_complement, 'Is complemented');
+  ok($call->complement->callset_name eq $callset_name,
+     "Callset name preserved by complement");
+  ok($call->complement->qscore eq $qscore,
+     "Qscore preserved by complement");
 }
 
 sub merge : Test(9) {
@@ -325,5 +354,5 @@ sub equivalent : Test(15) {
   ok(!$no_call->equivalent($no_call), 'No call not equivalent with self');
 }
 
-1;
+return 1;
 

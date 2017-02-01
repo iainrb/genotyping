@@ -1,11 +1,9 @@
-use utf8;
-
 package WTSI::NPG::Expression::ProfileAnnotationTest;
 
 use strict;
 use warnings;
 
-use base qw(Test::Class);
+use base qw(WTSI::NPG::Test);
 use File::Spec;
 use Test::More tests => 10;
 use Test::Exception;
@@ -56,3 +54,5 @@ sub is_valid : Test(5) {
   ok(!WTSI::NPG::Expression::ProfileAnnotation->new
      ("$data_path/$control_file")->is_valid);
 }
+
+1;

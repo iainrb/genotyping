@@ -6,13 +6,20 @@ package WTSI::NPG::Genotyping::Fluidigm::SubscriberTest;
 use strict;
 use warnings;
 use DateTime;
-use List::AllUtils qw(uniq);
+use File::Path qw/make_path/;
+use File::Slurp qw/read_file/;
+use File::Spec::Functions qw/catfile/;
+use File::Temp qw/tempdir/;
+use JSON;
+use List::AllUtils qw/uniq/;
 
-use base qw(Test::Class);
-use Test::More tests => 41;
+use base qw(WTSI::NPG::Test);
+use Test::More tests => 43;
 use Test::Exception;
 
 Log::Log4perl::init('./etc/log4perl_tests.conf');
+
+our $log = Log::Log4perl->get_logger();
 
 BEGIN { use_ok('WTSI::NPG::Genotyping::Fluidigm::Subscriber') };
 
@@ -29,9 +36,11 @@ my @sample_plates = qw(1381735059 1381735060 1381735059);
 my @sample_wells = qw(S01 S01 S02);
 my $non_unique_identifier = 'ABCDEFGHI';
 
-my $reference_name = 'Homo_sapiens (1000Genomes)';
+my $reference_name = 'Homo_sapiens (GRCh37)';
 my $snpset_name = 'qc';
 my $snpset_file = 'qc.tsv';
+my $chromosome_length_file = 'chromosome_lengths_GRCh37.json';
+my $tmp;
 
 my $irods_tmp_coll;
 
@@ -41,12 +50,17 @@ sub make_fixture : Test(setup) {
   my $irods = WTSI::NPG::iRODS->new;
   $irods_tmp_coll = "FluidigmSubscriberTest.$pid";
   $irods->add_collection($irods_tmp_coll);
-  $irods->add_object("$data_path/$snpset_file", "$irods_tmp_coll/$snpset_file");
+  my $chromosome_lengths_irods = "$irods_tmp_coll/$chromosome_length_file";
+  $irods->add_object("$data_path/$chromosome_length_file",
+                     $chromosome_lengths_irods);
+  $irods->add_object("$data_path/$snpset_file",
+                     "$irods_tmp_coll/$snpset_file");
 
   my $snpset_obj = WTSI::NPG::iRODS::DataObject->new
     ($irods,"$irods_tmp_coll/$snpset_file")->absolute;
   $snpset_obj->add_avu('fluidigm_plex', $snpset_name);
   $snpset_obj->add_avu('reference_name', $reference_name);
+  $snpset_obj->add_avu('chromosome_json', $chromosome_lengths_irods);
 
   foreach my $i (0..2) {
     my $file = $assay_resultset_files[$i];
@@ -59,6 +73,19 @@ sub make_fixture : Test(setup) {
     $resultset_obj->add_avu('dcterms:identifier', $sample_identifiers[$i]);
     $resultset_obj->add_avu('dcterms:identifier', $non_unique_identifier);
   }
+
+  # set up dummy fasta reference
+  $tmp = tempdir("fluidigm_subscriber_test_XXXXXX", CLEANUP => 1);
+  $ENV{NPG_REPOSITORY_ROOT} = $tmp;
+  my $fastadir = catfile($tmp, 'references', 'Homo_sapiens',
+                         'GRCh37_53', 'all', 'fasta');
+  make_path($fastadir);
+  my $reference_file_path = catfile($fastadir,
+                                    'Homo_sapiens.GRCh37.dna.all.fa');
+  open my $fh, '>>', $reference_file_path || $log->logcroak(
+      "Cannot open reference file path '", $reference_file_path, "'");
+  close $fh || $log->logcroak(
+      "Cannot close reference file path '", $reference_file_path, "'");
 }
 
 sub teardown : Test(teardown) {
@@ -81,15 +108,35 @@ sub constructor : Test(1) {
           snpset_name    => $snpset_name]);
 }
 
-sub get_assay_resultsets : Test(5) {
-  my $irods = WTSI::NPG::iRODS->new;
-  my $resultsets1 = WTSI::NPG::Genotyping::Fluidigm::Subscriber->new
+sub find_object_paths : Test(1) {
+    my $irods = WTSI::NPG::iRODS->new;
+    my @obj_paths = WTSI::NPG::Genotyping::Fluidigm::Subscriber->new
     (irods          => $irods,
      data_path      => $irods_tmp_coll,
      reference_path => $irods_tmp_coll,
      reference_name => $reference_name,
-     snpset_name    => $snpset_name)->get_assay_resultsets
+     snpset_name    => $snpset_name)->find_object_paths(
+         [uniq @sample_identifiers]);
+    ok(scalar @obj_paths == 3,
+       "Found 3 iRODS object paths for sample results");
+}
+
+sub get_assay_resultsets_and_vcf_metadata : Test(6) {
+  my $irods = WTSI::NPG::iRODS->new;
+  my ($resultsets1, $meta1) = WTSI::NPG::Genotyping::Fluidigm::Subscriber->new
+    (irods          => $irods,
+     data_path      => $irods_tmp_coll,
+     reference_path => $irods_tmp_coll,
+     reference_name => $reference_name,
+     snpset_name    => $snpset_name)->get_assay_resultsets_and_vcf_metadata
        ([uniq @sample_identifiers]);
+
+  my $expected_meta = {
+      'plex_type' => [ 'fluidigm' ],
+      'plex_name' => [ 'qc' ],
+      'callset_name' => [ 'fluidigm_qc' ],
+  };
+  is_deeply($meta1, $expected_meta, "VCF metadata matches expected values");
 
   cmp_ok(scalar keys %$resultsets1, '==', 2, 'Assay resultsets for 2 samples');
   cmp_ok(scalar @{$resultsets1->{ABC0123456789}}, '==', 2,
@@ -99,42 +146,22 @@ sub get_assay_resultsets : Test(5) {
 
   dies_ok {
     WTSI::NPG::Genotyping::Fluidigm::Subscriber->new
-        (irods          => $irods,
-         data_path      => $irods_tmp_coll,
-         reference_path => $irods_tmp_coll,
-         reference_name => $reference_name,
-         snpset_name    => $snpset_name)->get_assay_resultsets
+      (irods          => $irods,
+       data_path      => $irods_tmp_coll,
+       reference_path => $irods_tmp_coll,
+       reference_name => $reference_name,
+       snpset_name    => $snpset_name)->get_assay_resultsets_and_vcf_metadata
            ([$non_unique_identifier]);
   } 'Fails when query finds results for >1 sample';
 
-  ok(defined WTSI::NPG::Genotyping::Fluidigm::Subscriber->new
+  my ($resultsets2, $meta2) = WTSI::NPG::Genotyping::Fluidigm::Subscriber->new
      (irods          => $irods,
       data_path      => $irods_tmp_coll,
       reference_path => $irods_tmp_coll,
       reference_name => $reference_name,
-      snpset_name    => $snpset_name)->get_assay_resultsets
-     ([map { 'X' . $_ } 1 .. 100]), "'IN' query of 100 args");
-}
-
-sub get_assay_resultset : Test(2) {
-  my $irods = WTSI::NPG::iRODS->new;
-  my $resultset = WTSI::NPG::Genotyping::Fluidigm::Subscriber->new
-    (irods          => $irods,
-     data_path      => $irods_tmp_coll,
-     reference_path => $irods_tmp_coll,
-     reference_name => $reference_name,
-     snpset_name    => $snpset_name)->get_assay_resultset('XYZ0123456789');
-
-  ok($resultset, 'Assay resultsets');
-  dies_ok {
-    WTSI::NPG::Genotyping::Fluidigm::Subscriber->new
-        (irods          => $irods,
-         data_path      => $irods_tmp_coll,
-         reference_path => $irods_tmp_coll,
-         reference_name => $reference_name,
-         snpset_name    => $snpset_name)->get_assay_resultset
-           ($non_unique_identifier);
-  } 'Fails on matching multiple results';
+      snpset_name    => $snpset_name)->get_assay_resultsets_and_vcf_metadata
+          ([map { 'X' . $_ } 1 .. 100]);
+  ok(defined $resultsets2, "'IN' query of 100 args");
 }
 
 sub get_calls : Test(31) {
@@ -229,10 +256,13 @@ sub get_calls : Test(31) {
   $resultset_obj->add_avu('fluidigm_well', 'S01');
   $resultset_obj->add_avu('dcterms:identifier', $sample_identifiers[0]);
   $resultset_obj->add_avu('dcterms:identifier', $non_unique_identifier);
-
-  @calls_observed = _get_observed_calls($irods, $irods_tmp_coll,
-                                        $reference_name, $snpset_name,
-                                        'ABC0123456789');
+  do {
+      local *STDERR;
+      open (STDERR, '>', '/dev/null'); # suppress warning output to STDERR
+      @calls_observed = _get_observed_calls($irods, $irods_tmp_coll,
+                                            $reference_name, $snpset_name,
+                                            'ABC0123456789');
+  };
 
   # Merging 3 un-mergable resultsets
   is (scalar @calls_expected, scalar @calls_observed,
@@ -251,6 +281,21 @@ sub get_calls : Test(31) {
        "Calls do not match for snp at position $unmatched_pos");
 }
 
+sub get_chromosome_lengths : Test(2) {
+  my $irods = WTSI::NPG::iRODS->new;
+  my $chr_lengths = WTSI::NPG::Genotyping::Fluidigm::Subscriber->new
+    (irods          => $irods,
+     data_path      => $irods_tmp_coll,
+     reference_path => $irods_tmp_coll,
+     reference_name => $reference_name,
+     snpset_name    => $snpset_name)->get_chromosome_lengths();
+  ok($chr_lengths, 'Chromosome lengths found');
+  my $chromosome_length_path = "$data_path/$chromosome_length_file";
+  my $chr_lengths_expected = decode_json(read_file($chromosome_length_path));
+  is_deeply($chr_lengths, $chr_lengths_expected,
+            "Chromosome lengths match expected values");
+}
+
 sub _get_observed_calls {
   # get (snp_name, genotype) pair observed for each call
   my ($irods, $irods_coll, $rname, $sname, $sample_id) = @_;
@@ -261,7 +306,8 @@ sub _get_observed_calls {
      reference_path => $irods_coll,
      reference_name => $rname,
      snpset_name    => $sname);
-  my $assay_resultsets = $subscriber->get_assay_resultsets([$sample_id]);
+  my ($assay_resultsets, $vcf_meta) =
+      $subscriber->get_assay_resultsets_and_vcf_metadata([$sample_id]);
   my $calls = $subscriber->get_calls($assay_resultsets->{$sample_id});
 
   my @calls_observed;
