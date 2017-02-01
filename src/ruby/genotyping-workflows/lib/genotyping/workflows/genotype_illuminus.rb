@@ -1,6 +1,6 @@
 #-- encoding: UTF-8
 #
-# Copyright (c) 2012 Genome Research Ltd. All rights reserved.
+# Copyright (c) 2012, 2015, 2016 Genome Research Ltd. All rights reserved.
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -41,26 +41,28 @@ GenotypeIlluminus args
 
 Arguments:
 
-- db_file (String): The SQLite pipeline database file.
-- run_name (String): The name of a pipeline run defined in the pipeline database.
-- work_dir (String): The working directory, an absolute path.
+- db_file <String>: The SQLite pipeline database file.
+- run_name <String>: The name of a pipeline run defined in the pipeline database.
+- work_dir <String>: The working directory, an absolute path.
 - other arguments (keys and values):
 
     - config: <path> of custom pipeline database .ini file. Optional.
     - manifest: <path> of the chip manifest file. Required.
+    - plex_manifest: <Array> containing paths to one or more qc plex manifest files. Required.
     - gender_method: <string> name of a gender determination method described in
     methods.ini. Optional, defaults to 'Inferred'
     - chunk_size: <integer> number of SNPs to analyse in a single Illuminus job.
     Optional, defaults to 2000.
     - memory: <integer> number of Mb to request for jobs.
-    - queue: <normal | long etc.> An LSF queue hint. Optional, defaults to
-    'normal'.
+    - queue: <normal | long etc.> An LSF queue hint. Optional.
     - filterconfig: <path> to .json file with thresholds for prefilter on 
     GenCall QC. Optional; if absent, uses default illuminus thresholds 
     (requires config argument to be specified).
     - nofilter: <boolean> omit the prefilter on GenCall QC. Optional. If true, 
     overrides the filterconfig argument.
     - fam_dummy: <integer> Dummy value for missing paternal/maternal ID or phenotype in Plink .fam output. Must be equal to 0 or -9. Optional, defaults to -9.
+    - vcf: <Array> containing paths to one or more VCF files for identity QC
+    - plex_manifest: <Array> containing paths to one or more plex manifest files for identity QC
 
 e.g.
 
@@ -73,6 +75,12 @@ e.g.
      - config: /work/my_project/pipeline/pipedb.ini
        queue: small
        manifest: /genotyping/manifests/Human670-QuadCustom_v1_A.bpm.csv
+       vcf:
+           - /work/my_project/qc_calls_foo.vcf
+           - /work/my_project/qc_calls_bar.vcf
+       plex_manifest:
+           -/genotyping/manifests/qc_foo.tsv
+           -/genotyping/manifests/qc_bar.tsv
 
 Returns:
 
@@ -84,20 +92,24 @@ Returns:
     def run(dbfile, run_name, work_dir, args = {})
       defaults = {}
       args = intern_keys(defaults.merge(args))
-      args = ensure_valid_args(args, :config, :manifest, :queue, :memory,
+      args = ensure_valid_args(args, :config, :manifest, :plex_manifest,
+                               :queue, :memory,
                                :select, :chunk_size, :fam_dummy, 
-                               :gender_method, :filterconfig, :nofilter)
+                               :gender_method, :filterconfig, :nofilter,
+                               :vcf, :plex_manifest)
 
       async_defaults = {:memory => 1024}
       async = lsf_args(args, async_defaults, :memory, :queue, :select)
 
       manifest_raw = args.delete(:manifest)
+      plex_manifest = args.delete(:plex_manifest)
       chunk_size = args.delete(:chunk_size) || 2000
       fam_dummy = args.delete(:fam_dummy) || -9
       gender_method = args.delete(:gender_method)
       gtconfig = args.delete(:config)
       fconfig = args.delete(:filterconfig) || nil
       nofilter = args.delete(:nofilter) || nil
+      vcf = args.delete(:vcf) || Array.new()
 
       args.delete(:memory)
       args.delete(:queue)
@@ -112,7 +124,7 @@ Returns:
               :log_dir => log_dir}.merge(args)
       maybe_version_log(log_dir)
 
-      run_name = run_name.to_s;
+      run_name = run_name.to_s
       gcsjname = run_name + '.gencall.sample.json'
       sjname = run_name + '.illuminus.sample.json'
       njname = run_name + '.snp.json'
@@ -134,14 +146,24 @@ Returns:
         gcquality = true
       else
         ## run gencall QC to apply gencall CR filter and find genders
+        gcqcargs = {:run => run_name}.merge(args)
         if fconfig
-          gcqcargs = {:run => run_name, :filter => fconfig}.merge(args)
+          gcqcargs = {:filter => fconfig}.merge(gcqcargs)
         else
-          gcqcargs = {:run => run_name, :illuminus_filter => true}.merge(args)
+          gcqcargs = {:illuminus_filter => true}.merge(gcqcargs)
         end
+        if (not vcf.empty?) and (not plex_manifest.empty?)
+          # use comma-separated lists of VCF/plex files in QC args
+          gcqcargs = gcqcargs.merge({
+              :vcf => vcf.join(","),
+              :plex_manifest => plex_manifest.join(","),
+              :sample_json => gcsjson
+          }) # overwrites original values in gcqcargs
+        end
+
         gcqcdir = File.join(work_dir, 'gencall_qc')
-        gcquality = quality_control(dbfile, gcsfile, gcqcdir, gcqcargs, 
-                                    async, true)
+        gcquality = quality_control(dbfile, gcsfile, gcqcdir,
+                                    gcqcargs, async, true)
       end
 
       ## use post-filter pipeline DB to generate sample JSON and .sim file
@@ -182,8 +204,21 @@ Returns:
       ilfile = update_annotation(merge_bed(ilchunks, ilname, args, async),
                                  sjson, njson, fam_dummy, args, async)
 
+      # run QC on final output
       output = File.join(work_dir, 'illuminus_qc')
-      qcargs = {:run => run_name, :sim => smfile}.merge(args)
+      qcargs = {
+        :run => run_name,
+        :sim => smfile
+      }.merge(args)
+      if (not vcf.empty?) and (not plex_manifest.empty?)
+        # use comma-separated lists of VCF/plex files in QC args
+        qcargs = qcargs.merge({
+          :vcf => vcf.join(","),
+          :plex_manifest => plex_manifest.join(","),
+          :sample_json => sjson
+        }) # overwrites original values in qcargs
+      end
+
       ilquality = quality_control(dbfile, ilfile, output, qcargs, async)
 
       if [gcsfile, ilfile, gcquality, ilquality].all?

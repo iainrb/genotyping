@@ -1,6 +1,6 @@
 #-- encoding: UTF-8
 #
-# Copyright (c) 2012 Genome Research Ltd. All rights reserved.
+# Copyright (c) 2012, 2016 Genome Research Ltd. All rights reserved.
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -31,14 +31,15 @@ module Genotyping::Tasks
     # - dbfile (String): The SQLite database file name.
     # - input (Array): An Array of 3 filenames, being the Plink BED and
     #   corresponding BIM and FAM files.
+    # - plex_manifest (String): Path to the QC plex manifest file.
     # - args (Hash): Arguments for the operation.
     #
     # - async (Hash): Arguments for asynchronous management.
     #
     # Returns:
     # - boolean
-    def quality_control(dbfile, input, output, args = {}, async = {},
-                        wait=false)
+    def quality_control(dbfile, input, output,
+                        args = {}, async = {}, wait=false)
       args, work_dir, log_dir = process_task_args(args)
 
       if args_available?(dbfile, input, output, work_dir)
@@ -49,13 +50,14 @@ module Genotyping::Tasks
           Dir.mkdir(output) unless File.exist?(output)
 
           cli_args = args.merge({:dbpath => dbfile,
-                                 :output_dir => output})
-
+                                 :output_dir => output,
+                                 :plink => base})
+          
           margs = [dbfile, input, output]
 
           command = [RUN_QC,
                      cli_arg_map(cli_args, :prefix => '--') { |key|
-                       key.gsub(/_/, '-') }, base].flatten.join(' ')
+                       key.gsub(/_/, '-') }].flatten.join(' ')
 
           task_id = task_identity(:quality_control, *margs)
           log = File.join(log_dir, task_id + '.log')
@@ -87,6 +89,10 @@ module Genotyping::Tasks
     #
     # Returns:
     # - boolean
+    #
+    # NOTE: This is the old version of the identity check. Calls are read
+    # from the SQLite pipeline database instead of a VCF file.
+    #
     def check_identity(dbfile, input, output, args = {}, async = {})
       
       args, work_dir, log_dir = process_task_args(args)

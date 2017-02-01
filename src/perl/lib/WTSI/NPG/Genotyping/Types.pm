@@ -13,6 +13,7 @@ use MooseX::Types -declare =>
       ArrayRefOfReference
       ArrayRefOfResultSet
       ArrayRefOfVariant
+      Call
       DNABase
       DNAStrand
       FluidigmResultSet
@@ -37,7 +38,9 @@ use MooseX::Types -declare =>
       SNPSet
       Variant
       XMarker
+      XMarkerCall
       YMarker
+      YMarkerCall
     )
   ];
 
@@ -45,32 +48,32 @@ our $VERSION = '';
 
 subtype HsapiensChromosome,
   as Str,
-  where { $_ =~ m{(^[Cc]hr)?[\d+|MT|X|Y]$}msx },
+  where { m{(^[Cc]hr)?[\d+|MT|X|Y]$}msx },
   message { "'$_' is not a valid H. sapiens chromosome name" };
 
 subtype HsapiensX,
   as Str,
-  where { $_ =~ m{(^[Cc]hr)?X$}msx },
+  where { m{(^[Cc]hr)?X$}msx },
   message { "'$_' is not a valid H. sapiens X chromosome" };
 
 subtype HsapiensY,
   as Str,
-  where { $_ =~ m{(^[Cc]hr)?Y$}msx },
+  where { m{(^[Cc]hr)?Y$}msx },
   message { "'$_' is not a valid H. sapiens Y chromosome" };
 
 subtype InfiniumBeadchipBarcode,
   as Str,
-  where { $_ =~ m{^\d{10,12}$}msx },
+  where { m{^\d{10,12}$}msx },
   message { "'$_' is not a valid Infinium beadchip barcode" };
 
 subtype InfiniumBeadchipSection,
   as Str,
-  where { $_ =~ m{^R\d+C\d+$}msx },
+  where { m{^R\d+C\d+$}msx },
   message { "'$_' is not a valid Infinium beadchip section" };
 
 subtype DNABase,
   as Str,
-  where { $_ =~ m{^[ACGTNacgtn]$}msx },
+  where { m{^[ACGTNacgtn]$}msx },
   message { "'$_' is not a valid DNA base" };
 
 subtype DNAStrand,
@@ -81,7 +84,7 @@ subtype DNAStrand,
 # A genotype call represented as a 2 allele string.
 subtype SNPGenotype,
   as Str,
-  where { length($_) == 2              &&
+  where { length == 2              &&
           is_DNABase(substr($_, 0, 1)) &&
           is_DNABase(substr($_, 1, 1)) },
   message { "'$_' is not a valid SNP call"};
@@ -107,6 +110,7 @@ class_type SequenomResultSet, {
 subtype ResultSet,
   as FluidigmResultSet | SequenomResultSet;
 
+class_type Call,         { class => 'WTSI::NPG::Genotyping::Call' };
 class_type GenderMarker, { class => 'WTSI::NPG::Genotyping::GenderMarker' };
 class_type Reference,    { class => 'WTSI::NPG::Genotyping::Reference' };
 class_type SNP,          { class => 'WTSI::NPG::Genotyping::SNP' };
@@ -126,6 +130,18 @@ subtype YMarker,
   where { is_HsapiensY($_->chromosome) },
   message { $_->name . ' on ' . $_->chromosome .
               ' is not a valid Y chromosome marker' };
+
+subtype XMarkerCall,
+  as Call,
+  where { is_XMarker($_->snp) },
+  message { 'Call for variant '.$_->snp->name . ' on ' . $_->snp->chromosome.
+                ' is not a valid X chromosome marker call' };
+
+subtype YMarkerCall,
+  as Call,
+  where { is_YMarker($_->snp) },
+  message { 'Call for variant '.$_->snp->name . ' on ' . $_->snp->chromosome.
+                ' is not a valid Y chromosome marker call' };
 
 subtype ArrayRefOfReference,
   as ArrayRef[Reference];
