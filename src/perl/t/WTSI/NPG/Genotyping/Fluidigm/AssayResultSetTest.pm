@@ -8,7 +8,7 @@ use warnings;
 
 use base qw(WTSI::NPG::Test);
 use File::Spec;
-use Test::More tests => 68;
+use Test::More tests => 69;
 use Test::Exception;
 
 Log::Log4perl::init('./etc/log4perl_tests.conf');
@@ -94,6 +94,19 @@ sub constructor : Test(5) {
 
 sub size : Test(1) {
   cmp_ok($resultset->size, '==', 96, 'Expected size');
+}
+
+sub summary : Test(1) {
+  my $expected_summary = {
+    'total_empty' => 70,
+    'total_controls' => 70,
+    'call_rate' => '1',
+    'total_assays' => 96,
+    'sample_id' => 'ABC0123456789',
+    'total_valid' => 96,
+    'total_calls' => 96
+  };
+  is_deeply($resultset->summary, $expected_summary, 'Expected summary');
 }
 
 sub assay_results : Test(3) {

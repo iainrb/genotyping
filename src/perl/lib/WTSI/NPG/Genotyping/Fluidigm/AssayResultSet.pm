@@ -24,6 +24,51 @@ has 'assay_results' =>
    builder  => '_build_assay_results',
    lazy     => 1);
 
+has 'call_rate' =>
+  (is       => 'ro',
+   isa      => 'Num',
+   init_arg => undef,
+   lazy     => 1,
+   builder  => '_build_call_rate',
+   documentation => 'QC metric, defined as total_calls / total_assays',
+);
+
+has 'total_calls' =>
+  (is       => 'ro',
+   isa      => 'Int',
+   init_arg => undef,
+   lazy     => 1,
+   builder  => '_build_total_calls',
+   documentation => 'Number of assay results for which is_call is True',
+);
+
+has 'total_controls' =>
+  (is       => 'ro',
+   isa      => 'Int',
+   init_arg => undef,
+   lazy     => 1,
+   builder  => '_build_total_controls',
+   documentation => 'Number of assay results for which is_control is True',
+);
+
+has 'total_empty' =>
+  (is       => 'ro',
+   isa      => 'Int',
+   init_arg => undef,
+   lazy     => 1,
+   builder  => '_build_total_empty',
+   documentation => 'Number of assay results for which is_empty is True',
+);
+
+has 'total_valid' =>
+  (is       => 'ro',
+   isa      => 'Int',
+   init_arg => undef,
+   lazy     => 1,
+   builder  => '_build_total_valid',
+   documentation => 'Number of assay results for which is_valid is True',
+);
+
 around BUILDARGS => sub {
   my ($orig, $class, @args) = @_;
 
@@ -185,6 +230,34 @@ sub filter_on_confidence {
   return \@filtered_results;
 }
 
+
+=head2 summary
+
+  Arg [1]    : None
+
+  Example    : $summary = $result->summary();
+  Description: Return a HashRef containing summary values, which can be
+               used for JSON output
+  Returntype : HashRef
+
+=cut
+
+sub summary {
+  my ($self) = @_;
+  # TODO include mean/median quality score?
+  my $summary = {
+    sample_id      => $self->canonical_sample_id(),
+    call_rate      => $self->call_rate,
+    total_assays   => $self->size(),
+    total_calls    => $self->total_calls,
+    total_controls => $self->total_controls,
+    total_empty    => $self->total_empty,
+    total_valid    => $self->total_valid,
+  };
+  return $summary;
+}
+
+
 sub _build_assay_results {
   my ($self) = @_;
 
@@ -206,6 +279,45 @@ sub _build_assay_results {
   close $fh or $self->logwarn("Failed to close a string handle");
 
   return $records;
+}
+
+sub _build_call_rate {
+  my ($self,) = @_;
+  my $call_rate = 0;
+  if ($self->size() != 0) {
+    $call_rate = $self->total_calls / $self->size();
+  }
+  return $call_rate;
+}
+sub _build_total_calls {
+  my ($self,) = @_;
+  return $self->_count_matching_assays('is_call');
+}
+
+sub _build_total_controls {
+  my ($self,) = @_;
+  return $self->_count_matching_assays('is_control');
+}
+
+sub _build_total_empty {
+  my ($self,) = @_;
+  return $self->_count_matching_assays('is_empty');
+}
+
+sub _build_total_valid {
+  my ($self,) = @_;
+  return $self->_count_matching_assays('is_valid');
+}
+
+sub _count_matching_assays {
+  # method to count AssayResults which return True for a given function
+  # eg. count all empty, is_call, is invalid
+  my ($self, $sub_boolean) = @_;
+  my $count = 0;
+  foreach my $ar (@{$self->assay_results}) {
+    if ($ar->$sub_boolean()) { $count++; }
+  }
+  return $count;
 }
 
 sub _parse_assay_results {
@@ -274,6 +386,7 @@ sub _parse_assay_results {
   return \@records;
 }
 
+
 __PACKAGE__->meta->make_immutable;
 
 no Moose;
@@ -293,11 +406,11 @@ for a number of SNPs.
 
 =head1 AUTHOR
 
-Keith James <kdj@sanger.ac.uk>
+Keith James <kdj@sanger.ac.uk>, Iain Bancarz <ib5@sanger.ac.uk>
 
 =head1 COPYRIGHT AND DISCLAIMER
 
-Copyright (C) 2014, 2015 Genome Research Limited. All Rights Reserved.
+Copyright (C) 2014, 2015, 2017 Genome Research Limited. All Rights Reserved.
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the Perl Artistic License or the GNU General
