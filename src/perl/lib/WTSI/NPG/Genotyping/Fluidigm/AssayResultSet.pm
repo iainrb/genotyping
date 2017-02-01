@@ -258,6 +258,41 @@ sub summary {
 }
 
 
+=head2 to_string
+
+  Arg [1]    : None
+
+  Example    : $summary_string = $result->to_string();
+  Description: Return a comma-separated string containing summary values,
+               which can be used for CSV output
+  Returntype : Str
+
+=cut
+
+sub to_string {
+  my ($self) = @_;
+
+  my @fields = (
+    $self->canonical_sample_id(),
+    $self->call_rate,
+    $self->size(),
+    $self->total_calls,
+    $self->total_controls,
+    $self->total_empty,
+    $self->total_valid,
+  );
+
+  my $csv = Text::CSV->new ({ binary => 1 });
+
+  $csv->combine(@fields);
+  my $string = $csv->string();
+  if (! defined $string) {
+    $self->logconfess("Unable to generate CSV string from input '",
+                      $csv->error_input, "'");
+  }
+  return $string;
+}
+
 sub _build_assay_results {
   my ($self) = @_;
 

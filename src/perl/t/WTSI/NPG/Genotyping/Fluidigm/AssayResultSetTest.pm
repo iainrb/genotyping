@@ -8,7 +8,7 @@ use warnings;
 
 use base qw(WTSI::NPG::Test);
 use File::Spec;
-use Test::More tests => 69;
+use Test::More tests => 70;
 use Test::Exception;
 
 Log::Log4perl::init('./etc/log4perl_tests.conf');
@@ -94,6 +94,11 @@ sub constructor : Test(5) {
 
 sub size : Test(1) {
   cmp_ok($resultset->size, '==', 96, 'Expected size');
+}
+
+sub string : Test(1) {
+  ok($resultset->to_string() eq 'ABC0123456789,1,96,96,70,70,96',
+     'Expected CSV string');
 }
 
 sub summary : Test(1) {
