@@ -97,8 +97,10 @@ sub size : Test(1) {
 }
 
 sub string : Test(1) {
-  ok($resultset->to_string() eq 'ABC0123456789,1,96,96,70,70,96',
-     'Expected CSV string');
+  cmp_ok($resultset->summary_string(),
+         'eq',
+         'ABC0123456789,1.0000,96,96,70,70,96,26,26',
+         'Expected CSV string');
 }
 
 sub summary : Test(1) {
@@ -109,7 +111,9 @@ sub summary : Test(1) {
     'total_assays' => 96,
     'sample_id' => 'ABC0123456789',
     'total_valid' => 96,
-    'total_calls' => 96
+    'total_calls' => 96,
+    'total_template_assays' => 26,
+    'total_template_assay_calls' => 26,
   };
   is_deeply($resultset->summary, $expected_summary, 'Expected summary');
 }

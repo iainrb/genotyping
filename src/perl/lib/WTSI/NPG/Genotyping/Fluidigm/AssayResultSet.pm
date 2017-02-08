@@ -30,7 +30,9 @@ has 'call_rate' =>
    init_arg => undef,
    lazy     => 1,
    builder  => '_build_call_rate',
-   documentation => 'QC metric, defined as total_calls / total_assays',
+   documentation => 'QC metric, defined as total_template_calls / '.
+       'total_template_assays. Measures the call rate excluding control '.
+       'and empty assays.',
 );
 
 has 'total_calls' =>
@@ -58,6 +60,26 @@ has 'total_empty' =>
    lazy     => 1,
    builder  => '_build_total_empty',
    documentation => 'Number of assay results for which is_empty is True',
+);
+
+has 'total_template_assay_calls' =>
+  (is       => 'ro',
+   isa      => 'Int',
+   init_arg => undef,
+   lazy     => 1,
+   builder  => '_build_total_template_assay_calls',
+   documentation => 'Number of assay results for which '.
+       'is_template_call is True',
+);
+
+has 'total_template_assays' =>
+  (is       => 'ro',
+   isa      => 'Int',
+   init_arg => undef,
+   lazy     => 1,
+   builder  => '_build_total_template_assays',
+   documentation => 'Number of assay results for which '.
+       'is_template_assay is True',
 );
 
 has 'total_valid' =>
@@ -246,44 +268,46 @@ sub summary {
   my ($self) = @_;
   # TODO include mean/median quality score?
   my $summary = {
-    sample_id      => $self->canonical_sample_id(),
-    call_rate      => $self->call_rate,
-    total_assays   => $self->size(),
-    total_calls    => $self->total_calls,
-    total_controls => $self->total_controls,
-    total_empty    => $self->total_empty,
-    total_valid    => $self->total_valid,
+    sample_id                  => $self->canonical_sample_id(),
+    call_rate                  => $self->call_rate,
+    total_assays               => $self->size(),
+    total_calls                => $self->total_calls,
+    total_controls             => $self->total_controls,
+    total_empty                => $self->total_empty,
+    total_template_assays      => $self->total_template_assays,
+    total_template_assay_calls => $self->total_template_assay_calls,
+    total_valid                => $self->total_valid,
   };
   return $summary;
 }
 
 
-=head2 to_string
+=head2 summary_string
 
   Arg [1]    : None
 
-  Example    : $summary_string = $result->to_string();
+  Example    : $summary_string = $result->summary_string();
   Description: Return a comma-separated string containing summary values,
                which can be used for CSV output
   Returntype : Str
 
 =cut
 
-sub to_string {
+sub summary_string {
   my ($self) = @_;
 
   my @fields = (
     $self->canonical_sample_id(),
-    $self->call_rate,
+    sprintf("%.4f", $self->call_rate),
     $self->size(),
     $self->total_calls,
     $self->total_controls,
     $self->total_empty,
     $self->total_valid,
+    $self->total_template_assays,
+    $self->total_template_assay_calls,
   );
-
   my $csv = Text::CSV->new ({ binary => 1 });
-
   $csv->combine(@fields);
   my $string = $csv->string();
   if (! defined $string) {
@@ -319,11 +343,13 @@ sub _build_assay_results {
 sub _build_call_rate {
   my ($self,) = @_;
   my $call_rate = 0;
-  if ($self->size() != 0) {
-    $call_rate = $self->total_calls / $self->size();
+  if ($self->total_template_assays != 0) {
+    $call_rate =
+        $self->total_template_assay_calls / $self->total_template_assays;
   }
   return $call_rate;
 }
+
 sub _build_total_calls {
   my ($self,) = @_;
   return $self->_count_matching_assays('is_call');
@@ -339,14 +365,24 @@ sub _build_total_empty {
   return $self->_count_matching_assays('is_empty');
 }
 
+sub _build_total_template_assay_calls {
+  my ($self,) = @_;
+  return $self->_count_matching_assays('is_template_call');
+}
+
+sub _build_total_template_assays {
+  my ($self,) = @_;
+  return $self->_count_matching_assays('is_template_assay');
+}
+
 sub _build_total_valid {
   my ($self,) = @_;
   return $self->_count_matching_assays('is_valid');
 }
 
 sub _count_matching_assays {
-  # method to count AssayResults which return True for a given function
-  # eg. count all empty, is_call, is invalid
+  # method to count AssayResults which return True for a given object method
+  # eg. count instances of is_empty, is_call, is_invalid
   my ($self, $sub_boolean) = @_;
   my $count = 0;
   foreach my $ar (@{$self->assay_results}) {
