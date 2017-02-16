@@ -253,47 +253,18 @@ sub filter_on_confidence {
 }
 
 
-=head2 summary
+=head2 summary_fields
 
   Arg [1]    : None
 
-  Example    : $summary = $result->summary();
-  Description: Return a HashRef containing summary values, which can be
-               used for JSON output
-  Returntype : HashRef
+  Example    : $summary_fields = $result->summary_fields();
+  Description: Return an ArrayRef containing summary values. Call rate is
+               rounded to 4 decimal places for subsequent output.
+  Returntype : ArrayRef
 
 =cut
 
-sub summary {
-  my ($self) = @_;
-  # TODO include mean/median quality score?
-  my $summary = {
-    sample_id                  => $self->canonical_sample_id(),
-    call_rate                  => $self->call_rate,
-    total_assays               => $self->size(),
-    total_calls                => $self->total_calls,
-    total_controls             => $self->total_controls,
-    total_empty                => $self->total_empty,
-    total_template_assays      => $self->total_template_assays,
-    total_template_assay_calls => $self->total_template_assay_calls,
-    total_valid                => $self->total_valid,
-  };
-  return $summary;
-}
-
-
-=head2 summary_string
-
-  Arg [1]    : None
-
-  Example    : $summary_string = $result->summary_string();
-  Description: Return a comma-separated string containing summary values,
-               which can be used for CSV output
-  Returntype : Str
-
-=cut
-
-sub summary_string {
+sub summary_fields {
   my ($self) = @_;
 
   my @fields = (
@@ -307,8 +278,24 @@ sub summary_string {
     $self->total_template_assays,
     $self->total_template_assay_calls,
   );
+  return \@fields;
+}
+
+=head2 summary_string
+
+  Arg [1]    : None
+
+  Example    : $summary_string = $result->summary_string();
+  Description: Return a comma-separated string containing summary values,
+               same as those returned by summary_fields().
+  Returntype : Str
+
+=cut
+
+sub summary_string {
+  my ($self) = @_;
   my $csv = Text::CSV->new ({ binary => 1 });
-  $csv->combine(@fields);
+  $csv->combine(@{$self->summary_fields()});
   my $string = $csv->string();
   if (! defined $string) {
     $self->logconfess("Unable to generate CSV string from input '",
