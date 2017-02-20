@@ -113,6 +113,7 @@ lib/WTSI/NPG/Genotyping/Fluidigm/AssayResultSet.pm
 lib/WTSI/NPG/Genotyping/Fluidigm/Collector.pm
 lib/WTSI/NPG/Genotyping/Fluidigm/ExportFile.pm
 lib/WTSI/NPG/Genotyping/Fluidigm/Publisher.pm
+lib/WTSI/NPG/Genotyping/Fluidigm/QC.pm
 lib/WTSI/NPG/Genotyping/Fluidigm/ResultSet.pm
 lib/WTSI/NPG/Genotyping/Fluidigm/Subscriber.pm
 lib/WTSI/NPG/Genotyping/GenderMarker.pm
@@ -354,6 +355,10 @@ t/fluidigm_publisher/repub/0123456789/0123456789.csv
 t/fluidigm_publisher/repub/0123456789/Data/aramis.tif
 t/fluidigm_publisher/repub/0123456789/Data/athos.tif
 t/fluidigm_publisher/repub/0123456789/Data/porthos.tif
+t/fluidigm_qc.t
+t/fluidigm_qc/1381735059/S01_1381735059.csv
+t/fluidigm_qc/1381735059/S02_1381735059.csv
+t/fluidigm_qc/fluidigm_qc.csv
 t/fluidigm_resultset.t
 t/fluidigm_resultset/complete/0123456789/0123456789.csv
 t/fluidigm_resultset/complete/0123456789/Data/aramis.tif
@@ -708,6 +713,7 @@ t/WTSI/NPG/Genotyping/Fluidigm/AssayResultSetTest.pm
 t/WTSI/NPG/Genotyping/Fluidigm/AssayResultTest.pm
 t/WTSI/NPG/Genotyping/Fluidigm/ExportFileTest.pm
 t/WTSI/NPG/Genotyping/Fluidigm/PublisherTest.pm
+t/WTSI/NPG/Genotyping/Fluidigm/QCTest.pm
 t/WTSI/NPG/Genotyping/Fluidigm/ResultSetTest.pm
 t/WTSI/NPG/Genotyping/Fluidigm/SubscriberTest.pm
 t/WTSI/NPG/Genotyping/GenderMarkerCallTest.pm
