@@ -8,7 +8,7 @@ use warnings;
 use base qw(WTSI::NPG::Test);
 use File::Copy qw/copy/;
 use File::Temp qw/tempdir/;
-use Test::More tests => 4;
+use Test::More tests => 6;
 use Test::Exception;
 use Text::CSV;
 
@@ -46,7 +46,7 @@ sub require : Test(1) {
     require_ok('WTSI::NPG::Genotyping::Fluidigm::AssayDataObject');
 }
 
-sub update : Test(2) {
+sub update : Test(4) {
     my $irods = WTSI::NPG::iRODS->new;
     my @irods_paths;
     my $barcode = '1381735059';
@@ -57,7 +57,7 @@ sub update : Test(2) {
     }
     my @data_objects;
     # 1 of the 2 AssayDataObjects is already present in fluidigm_qc.csv
-    # Update the file with the other AssayDataObject and check the contents
+    # updated contents will contain QC results for the other AssayDataObject
     foreach my $irods_path (@irods_paths) {
         my $obj = WTSI::NPG::Genotyping::Fluidigm::AssayDataObject->new(
             $irods, $irods_path,
@@ -66,21 +66,12 @@ sub update : Test(2) {
     }
     my $csv_path = "$tmp/$csv_name";
     my $qc = WTSI::NPG::Genotyping::Fluidigm::QC->new(csv_path => $csv_path);
-    ok($qc->write_csv(\@data_objects) == 1, '1 object written');
 
-    my $expected_csv = [
+    my $update_fields;
+    lives_ok(sub {$update_fields = $qc->csv_update_fields(\@data_objects)},
+             'Update fields found OK');
+    my $expected_fields = [
         [
-            'ABC0123456789',
-            '1.0000',
-            96,
-            96,
-            70,
-            70,
-            96,
-            26,
-            26,
-            '11413e77cde2a8dcca89705fe5b25a2d',
-        ], [
             'XYZ0987654321',
             '0.9231',
             96,
@@ -93,12 +84,18 @@ sub update : Test(2) {
             '73ca301a0a9e1b9cf87d4daf59eb2815',
         ],
     ];
-    my $csv = Text::CSV->new ( { binary => 1 } );
-    open my $fh, "<", $csv_path ||
-        $log->logcroak("Cannot open CSV '$csv_path'");
-    my $got_csv = $csv->getline_all($fh);
-    close $fh || $log->logcroak("Cannot close CSV '$csv_path'");
-    is_deeply($got_csv, $expected_csv, 'CSV contents match expected values');
+    is_deeply($update_fields, $expected_fields,
+              'Update field contents match expected values');
+
+    my $update_strings;
+    lives_ok(sub {$update_strings = $qc->csv_update_strings(\@data_objects)},
+             'Update strings found OK');
+    my $expected_string = 'XYZ0987654321,0.9231,96,94,70,70,96,26,24,'.
+        '73ca301a0a9e1b9cf87d4daf59eb2815';
+    my $expected_strings = [ $expected_string, ];
+    is_deeply($update_strings, $expected_strings,
+              'Update string contents match expected values');
+
 }
 
 1;
