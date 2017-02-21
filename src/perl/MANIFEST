@@ -21,6 +21,7 @@ bin/publish_infinium_analysis.pl
 bin/publish_infinium_genotypes.pl
 bin/publish_sequenom_genotypes.pl
 bin/publish_snpset.pl
+bin/qc_fluidigm.pl
 bin/query_project_samples.pl
 bin/ready_external.pl
 bin/ready_infinium.pl

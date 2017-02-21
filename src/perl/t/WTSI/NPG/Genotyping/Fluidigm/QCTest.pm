@@ -8,7 +8,7 @@ use warnings;
 use base qw(WTSI::NPG::Test);
 use File::Copy qw/copy/;
 use File::Temp qw/tempdir/;
-use Test::More tests => 6;
+use Test::More tests => 7;
 use Test::Exception;
 use Text::CSV;
 
@@ -95,7 +95,18 @@ sub update : Test(4) {
     my $expected_strings = [ $expected_string, ];
     is_deeply($update_strings, $expected_strings,
               'Update string contents match expected values');
+}
+
+sub script : Test(1) {
+
+    my $script = 'qc_fluidigm.pl';
+
+    my $cmd = "$script --query-path $irods_tmp_coll ".
+        "--old-csv $tmp/$csv_name --in-place";
+
+    ok(system($cmd)==0, "Script with in-place in effect exits OK");
 
 }
+
 
 1;
