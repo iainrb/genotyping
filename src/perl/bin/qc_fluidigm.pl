@@ -125,24 +125,24 @@ sub run {
         };
     }
     # Write updated QC results
-    $log->info("Updating QC results for ", @fluidigm_data_objects,
-               " Fluidigm data objects");
     my %args;
     if (defined $old_csv) { $args{'csv_path'} = $old_csv; }
     my $qc = WTSI::NPG::Genotyping::Fluidigm::QC->new(\%args);
-    my $updates = $qc->csv_update_strings();
+    my $updates = $qc->csv_update_strings(\@fluidigm_data_objects);
     my $fh;
     if (defined $new_csv) {
+        $log->debug("Appending output to path '$new_csv'");
         open $fh, ">>", $new_csv ||
             $log->logcroak("Cannot open output '", $new_csv, "'")
     } else {
+        $log->debug("Writing output to STDOUT");
         $fh = *STDOUT;
     }
     foreach my $update_string (@{$updates}) {
         print $fh $update_string."\n";
     }
     if (defined $new_csv) {
-        close $fh || $log->logcroak("Cannot close output '", $new_csv, "'")
+        close $fh || $log->logcroak("Cannot close output '", $new_csv, "'");
     }
 }
 
