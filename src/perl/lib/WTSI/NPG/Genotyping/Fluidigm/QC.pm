@@ -35,15 +35,13 @@ has 'csv_path' =>
 
 sub csv_update_fields {
     my ($self, $assay_data_objects) = @_;
-    my ($csv_checksums, $out);
+    my $csv_checksums;
     if (defined $self->csv_path) {
         $csv_checksums = $self->_read_checksums();
-    } else {
-        $csv_checksums = Set::Scalar->new;
     }
     my @updates;
     foreach my $obj (@{$assay_data_objects}) {
-        if ($csv_checksums->has($obj->checksum)) {
+        if (defined $csv_checksums && $csv_checksums->has($obj->checksum)) {
             $self->debug("Skipping data object ", $obj->str,
                          " as checksum is already present in CSV");
         } else {
