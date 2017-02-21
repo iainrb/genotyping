@@ -35,6 +35,9 @@ has 'csv_path' =>
 
 sub csv_update_fields {
     my ($self, $assay_data_objects) = @_;
+    if (! defined $assay_data_objects || scalar @{$assay_data_objects} == 0) {
+        $self->logwarn("Empty input to csv_update_fields");
+    }
     my $csv_checksums;
     if (defined $self->csv_path) {
         $csv_checksums = $self->_read_checksums();
@@ -45,6 +48,7 @@ sub csv_update_fields {
             $self->debug("Skipping data object ", $obj->str,
                          " as checksum is already present in CSV");
         } else {
+            $self->debug("Appending data object ", $obj->str, " to output");
             my @fields = @{$obj->assay_resultset->summary_fields};
             push @fields, $obj->checksum;
             push @updates, \@fields;
