@@ -26,10 +26,22 @@ has 'csv_path' =>
   Arg [1]    : ArrayRef[WTSI::NPG::Genotyping::Fluidigm::AssayDataObject]
 
   Example    : $qc->csv_update_fields($assay_data_objects);
+
   Description: Find updated QC data for the given AssayDataObjects.
-               If the checksum of an AssayDataObject already appears in
-               the existing CSV file, do nothing; otherwise, append its QC
-               results and checksum to the output.
+               If the csv_path attribute is defined, and the checksum of an
+               AssayDataObject is already present, do nothing; otherwise,
+               append its CSV fields to the output.
+
+               CSV format consists of the fields returned by the
+               summary_string() method of
+               WTSI::NPG::Genotyping::Fluidigm::AssayResultSet,
+               with three extra fields appended.
+
+               The extra fields denote the Fluidigm plate, Fluidigm well,
+               and md5 checksum. The first two are derived from iRODS
+               metadata, and may be an empty string if appropriate
+               metadata is not present.
+
   Returntype : ArrayRef[ArrayRef] CSV fields for update
 
 =cut
@@ -58,19 +70,20 @@ sub csv_update_fields {
                 $plate = $plate_avu->{'value'};
             } else {
                 $plate = '';
-                $self->logwarn("No $FLUIDIGM_PLATE_NAME AVU found for data ",
+                $self->logwarn("$FLUIDIGM_PLATE_NAME AVU not found for data ",
                                "object '", $obj->str, "'");
             }
             if ($well_avu) {
                 $well = $well_avu->{'value'};
             } else {
                 $well = '';
-                $self->logwarn("No $FLUIDIGM_PLATE_WELL AVU found for data ",
+                $self->logwarn("$FLUIDIGM_PLATE_WELL AVU not found for data ",
                                "object '", $obj->str, "'");
             }
             # Append plate, well, and md5 checksum
             push @fields, $plate, $well, $obj->checksum;
-            $self->debug("Appending data object ", $obj->str, " to output");
+            $self->debug("Appending results for data object ",
+                         $obj->str, " to output");
             push @updates, \@fields;
         }
     }
@@ -142,8 +155,8 @@ WTSI::NPG::Genotyping::Fluidigm::QC
 
 A class to process quality control metrics for Fluidigm results.
 
-Appends metric values to a CSV file. Ensures QC values for the same data
-object are not written more than once, by comparing md5 checksums.
+Find QC metric values for CSV output. Ensure QC values for the
+same data object are not written more than once, by comparing md5 checksums.
 
 =head1 AUTHOR
 
