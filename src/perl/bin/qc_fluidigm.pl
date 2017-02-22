@@ -172,23 +172,95 @@ Options:
                  Optional; if not given, all QC results will be included
                  in output.
   --query-path   An iRODS path to query for Fluidigm DataObjects. Required,
-                 unless iRODS paths are supplied on STDIN.
+                 unless iRODS paths are supplied on STDIN using the '-'
+                 option.
   --verbose      Print messages while processing. Optional.
 
 =head1 DESCRIPTION
 
-Search for published Fluidigm genotyping data in iRODS; cross-reference
-with existing QC results, if any; and append QC metrics for new data.
+Read published Fluidigm genotyping data from iRODS; cross-reference
+with existing QC results, if any; and append QC metrics for new data in CSV
+format.
 
-The CSV file for QC includes a field for the md5 checksum. If the checksum
-for a Fluidigm result does not appear in the existing CSV file, QC metrics
-for the result will be included in output. (If no existing CSV path is
-given, the script will simply write QC metrics for all the input results.)
+=head2 Input
 
-This script will read iRODS paths from STDIN as an alternative to
-finding them via a metadata query. To do this, terminate the command
-line with the '-' option. In this mode, the --query-path, --filter-key and
---filter-value options are invalid.
+=head3 Fluidigm data
+
+Input data from iRODS may be found via a metadata query, or from paths
+given on STDIN:
+
+=over
+
+=item *
+
+To query iRODS metadata, specify a search path using the --query-path option.
+The default query is for data objects with 'fluidigm_plate' and
+'fluidigm_well' attributes, and a 'type' attribute with value 'csv'.
+Additional query keys and values may be specified with the --filter-key
+and --filter-value options.
+
+=item *
+
+To read from STDIN, terminate the command line with the '-' option to read
+from STDIN. In this mode, the --query-path, --filter-key and --filter-value
+options are invalid.
+
+=back
+
+=head3 Existing QC results
+
+If desired, specify existing QC results using the --old-csv option. If the
+checksum for a Fluidigm result does I<not> appear in the existing CSV
+file, QC metrics for the result will be included in output.
+
+If no existing CSV path is given, the script will simply write CSV output
+for all the input results.
+
+=head2 Output
+
+=head3 CSV fields
+
+=over
+
+=item 1. Sample identifier
+
+=item 2. Call rate: Defined as field (8) / field (7), if field (7) is non-zero; zero otherwise.
+
+=item 3. Total calls
+
+=item 4. Total controls
+
+=item 5. Total empty
+
+=item 6. Total valid
+
+=item 7. Total template assays: Defined as assays which are not empty and not controls.
+
+=item 8. Total template calls: Defined as template assays in (7) which are calls.
+
+=item 9. Fluidigm plate
+
+=item 10. Fluidigm well
+
+=item 11. md5 checksum
+
+=back
+
+Items 1 through 8 are taken from the fluidigm assay result file, while 9
+through 11 are from iRODS metadata.
+
+=head3 Output location
+
+=over
+
+=item * If the --in-place option is given, the script will append new results to the existing CSV file given by --old-csv.
+
+=item * If the --new-csv option is supplied, the script will append to the given file.
+
+=item * If neither option is given, results will be written to STDOUT.
+
+=back
+
 
 =head1 METHODS
 
