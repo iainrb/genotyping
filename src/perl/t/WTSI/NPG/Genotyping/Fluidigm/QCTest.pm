@@ -8,7 +8,7 @@ use warnings;
 use base qw(WTSI::NPG::Test);
 use File::Copy qw/copy/;
 use File::Temp qw/tempdir/;
-use Test::More tests => 10;
+use Test::More tests => 14;
 use Test::Exception;
 use Text::CSV;
 
@@ -46,8 +46,9 @@ sub make_fixture : Test(setup) {
     foreach my $name (keys %wells) {
         my $irods_path = $irods_tmp_coll.'/'.$plate.'/'.$name;
         $irods->add_object_avu($irods_path, 'type', 'csv');
-        $irods->add_object_avu($irods_path, 'fluidigm_plate', $plate);
-        $irods->add_object_avu($irods_path, 'fluidigm_well', $wells{$name});
+        $irods->add_object_avu($irods_path, $FLUIDIGM_PLATE_NAME, $plate);
+        $irods->add_object_avu($irods_path, $FLUIDIGM_PLATE_WELL,
+                               $wells{$name});
         push @irods_paths, $irods_path;
     }
 }
@@ -106,6 +107,73 @@ sub update : Test(4) {
     my $expected_strings = [ $expected_string, ];
     is_deeply($update_strings, $expected_strings,
               'Update string contents match expected values');
+}
+
+sub update_missing_avus : Test(4) {
+    # test output when the plate and well AVUs are missing
+    my $irods = WTSI::NPG::iRODS->new;
+    my @data_objects;
+    # 1 of the 2 AssayDataObjects is already present in fluidigm_qc.csv
+    # updated contents will contain QC results for the other AssayDataObject
+    foreach my $irods_path (@irods_paths) {
+        my $obj = WTSI::NPG::Genotyping::Fluidigm::AssayDataObject->new(
+            $irods, $irods_path,
+        );
+        # remove plate/well metadata for output test
+        my $plate = $obj->get_avu($FLUIDIGM_PLATE_NAME)->{'value'};
+        my $well = $obj->get_avu($FLUIDIGM_PLATE_WELL)->{'value'};
+        $obj->remove_avu($FLUIDIGM_PLATE_NAME, $plate);
+        $obj->remove_avu($FLUIDIGM_PLATE_WELL, $well);
+        push @data_objects, $obj;
+    }
+    my $csv_path = "$tmp/$csv_name";
+    my $qc = WTSI::NPG::Genotyping::Fluidigm::QC->new(csv_path => $csv_path);
+
+    my $update_fields;
+    do {
+        # suppress warning chatter to STDERR
+        local *STDERR;
+        open STDERR, '>>', '/dev/null';
+        lives_ok(
+            sub {$update_fields = $qc->csv_update_fields(\@data_objects)},
+            'Update fields found OK, missing AVUs'
+        );
+    };
+    my $expected_fields = [
+        [
+            'XYZ0987654321',
+            '0.9231',
+            96,
+            94,
+            70,
+            70,
+            96,
+            26,
+            24,
+            '',
+            '',
+            '73ca301a0a9e1b9cf87d4daf59eb2815',
+        ],
+    ];
+    is_deeply($update_fields, $expected_fields,
+              'Update field contents match expected values, missing AVUs');
+
+    my $update_strings;
+    do {
+        # suppress warning chatter to STDERR
+        local *STDERR;
+        open STDERR, '>>', '/dev/null';
+        lives_ok(
+            sub {$update_strings = $qc->csv_update_strings(\@data_objects)},
+            'Update strings found OK, missing AVUs'
+        );
+    };
+    my $expected_string = 'XYZ0987654321,0.9231,96,94,70,70,96,26,24'.
+        ',,,73ca301a0a9e1b9cf87d4daf59eb2815';
+    my $expected_strings = [ $expected_string, ];
+    is_deeply($update_strings, $expected_strings,
+              'Update string contents match expected values, missing AVUs');
+
 }
 
 sub script_metaquery : Test(2) {
