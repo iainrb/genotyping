@@ -28,6 +28,7 @@ my $script = 'qc_fluidigm.pl';
 my $plate = '1381735059';
 my $data_path = "./t/fluidigm_qc/$plate";
 my $irods_tmp_coll;
+my @irods_paths;
 my $pid = $$;
 my $tmp;
 my $csv_name = 'fluidigm_qc.csv';
@@ -38,9 +39,21 @@ sub make_fixture : Test(setup) {
     my $irods = WTSI::NPG::iRODS->new;
     $irods_tmp_coll = $irods->add_collection("FluidigmQCTest.$pid");
     $irods->put_collection($data_path, $irods_tmp_coll);
+    my %wells = (
+        'S01_1381735059.csv' => 'S01',
+        'S02_1381735059.csv' => 'S02',
+    );
+    foreach my $name (keys %wells) {
+        my $irods_path = $irods_tmp_coll.'/'.$plate.'/'.$name;
+        $irods->add_object_avu($irods_path, 'type', 'csv');
+        $irods->add_object_avu($irods_path, 'fluidigm_plate', $plate);
+        $irods->add_object_avu($irods_path, 'fluidigm_well', $wells{$name});
+        push @irods_paths, $irods_path;
+    }
 }
 
 sub teardown : Test(teardown) {
+    @irods_paths = ();
     my $irods = WTSI::NPG::iRODS->new;
     $irods->remove_collection($irods_tmp_coll);
 }
@@ -83,6 +96,8 @@ sub update : Test(4) {
             96,
             26,
             24,
+            '1381735059',
+            'S02',
             '73ca301a0a9e1b9cf87d4daf59eb2815',
         ],
     ];
@@ -93,24 +108,13 @@ sub update : Test(4) {
     lives_ok(sub {$update_strings = $qc->csv_update_strings(\@data_objects)},
              'Update strings found OK');
     my $expected_string = 'XYZ0987654321,0.9231,96,94,70,70,96,26,24,'.
-        '73ca301a0a9e1b9cf87d4daf59eb2815';
+        '1381735059,S02,73ca301a0a9e1b9cf87d4daf59eb2815';
     my $expected_strings = [ $expected_string, ];
     is_deeply($update_strings, $expected_strings,
               'Update string contents match expected values');
 }
 
 sub script_metaquery : Test(2) {
-    my $irods = WTSI::NPG::iRODS->new;
-    my %wells = (
-        'S01_1381735059.csv' => 'S01',
-        'S02_1381735059.csv' => 'S02',
-    );
-    foreach my $name (keys %wells) {
-        my $irods_path = $irods_tmp_coll.'/'.$plate.'/'.$name;
-        $irods->add_object_avu($irods_path, 'type', 'csv');
-        $irods->add_object_avu($irods_path, 'fluidigm_plate', $plate);
-        $irods->add_object_avu($irods_path, 'fluidigm_well', $wells{$name});
-    }
     my $cmd = "$script --query-path $irods_tmp_coll ".
         "--old-csv $tmp/$csv_name --in-place --logconf $logconf";
     $log->info("Running command '$cmd'");
@@ -131,6 +135,8 @@ sub script_metaquery : Test(2) {
             96,
             26,
             26,
+            '1381735059',
+            'S01',
             '11413e77cde2a8dcca89705fe5b25a2d',
         ], [
             'XYZ0987654321',
@@ -142,21 +148,16 @@ sub script_metaquery : Test(2) {
             96,
             26,
             24,
+            '1381735059',
+            'S02',
             '73ca301a0a9e1b9cf87d4daf59eb2815',
         ],
     ];
-
     is_deeply($contents, $expected_contents,
               "Script in-place CSV output matches expected values");
 }
 
 sub script_stdin : Test(2) {
-    my @irods_paths;
-    foreach my $prefix (qw/S01 S02/) {
-        my $data_file = $prefix.'_'.$plate.'.csv';
-        my $irods_path = "$irods_tmp_coll/$plate/$data_file";
-        push @irods_paths, $irods_path;
-    }
     my $fh;
     my $input_path = $tmp."/test_inputs.txt";
     open $fh, ">", $input_path ||
@@ -188,10 +189,11 @@ sub script_stdin : Test(2) {
             96,
             26,
             24,
+            '1381735059',
+            'S02',
             '73ca301a0a9e1b9cf87d4daf59eb2815',
         ],
     ];
-
     is_deeply($contents, $expected_contents,
               "New CSV output from script matches expected values");
 }

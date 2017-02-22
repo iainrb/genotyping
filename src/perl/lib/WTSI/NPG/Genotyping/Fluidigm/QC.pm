@@ -48,9 +48,16 @@ sub csv_update_fields {
             $self->debug("Skipping data object ", $obj->str,
                          " as checksum is already present in CSV");
         } else {
-            $self->debug("Appending data object ", $obj->str, " to output");
             my @fields = @{$obj->assay_resultset->summary_fields};
-            push @fields, $obj->checksum;
+            # Find Fluidigm plate/well (if any) from object metadata
+            my ($plate, $well) = ('', '');
+            my $plate_avu = $obj->get_avu('fluidigm_plate');
+            my $well_avu = $obj->get_avu('fluidigm_well');
+            if ($plate_avu) { $plate = $plate_avu->{'value'}; }
+            if ($well_avu) { $well = $well_avu->{'value'}; }
+            # Append plate, well, and md5 checksum
+            push @fields, $plate, $well, $obj->checksum;
+            $self->debug("Appending data object ", $obj->str, " to output");
             push @updates, \@fields;
         }
     }
