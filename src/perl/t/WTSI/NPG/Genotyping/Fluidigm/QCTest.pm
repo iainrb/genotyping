@@ -64,12 +64,6 @@ sub require : Test(1) {
 
 sub update : Test(4) {
     my $irods = WTSI::NPG::iRODS->new;
-    my @irods_paths;
-    foreach my $prefix (qw/S01 S02/) {
-        my $data_file = $prefix.'_'.$plate.'.csv';
-        my $irods_path = "$irods_tmp_coll/$plate/$data_file";
-        push @irods_paths, $irods_path;
-    }
     my @data_objects;
     # 1 of the 2 AssayDataObjects is already present in fluidigm_qc.csv
     # updated contents will contain QC results for the other AssayDataObject

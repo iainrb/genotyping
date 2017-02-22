@@ -6,6 +6,7 @@ use Moose;
 use Set::Scalar;
 use Text::CSV;
 
+use WTSI::NPG::iRODS::Metadata;
 use WTSI::NPG::Genotyping::Fluidigm::AssayDataObject;
 use WTSI::NPG::Genotyping::Fluidigm::AssayResultSet;
 
@@ -51,20 +52,20 @@ sub csv_update_fields {
             my @fields = @{$obj->assay_resultset->summary_fields};
             # Find Fluidigm plate/well (if any) from object metadata
             my ($plate, $well);
-            my $plate_avu = $obj->get_avu('fluidigm_plate');
-            my $well_avu = $obj->get_avu('fluidigm_well');
+            my $plate_avu = $obj->get_avu($FLUIDIGM_PLATE_NAME);
+            my $well_avu = $obj->get_avu($FLUIDIGM_PLATE_WELL);
             if ($plate_avu) {
                 $plate = $plate_avu->{'value'};
             } else {
                 $plate = '';
-                $self->logwarn("No fluidigm_plate AVU found for data ",
+                $self->logwarn("No $FLUIDIGM_PLATE_NAME AVU found for data ",
                                "object '", $obj->str, "'");
             }
             if ($well_avu) {
                 $well = $well_avu->{'value'};
             } else {
                 $well = '';
-                $self->logwarn("No fluidigm_well AVU found for data ",
+                $self->logwarn("No $FLUIDIGM_PLATE_WELL AVU found for data ",
                                "object '", $obj->str, "'");
             }
             # Append plate, well, and md5 checksum
