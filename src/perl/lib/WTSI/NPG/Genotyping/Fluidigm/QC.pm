@@ -50,11 +50,23 @@ sub csv_update_fields {
         } else {
             my @fields = @{$obj->assay_resultset->summary_fields};
             # Find Fluidigm plate/well (if any) from object metadata
-            my ($plate, $well) = ('', '');
+            my ($plate, $well);
             my $plate_avu = $obj->get_avu('fluidigm_plate');
             my $well_avu = $obj->get_avu('fluidigm_well');
-            if ($plate_avu) { $plate = $plate_avu->{'value'}; }
-            if ($well_avu) { $well = $well_avu->{'value'}; }
+            if ($plate_avu) {
+                $plate = $plate_avu->{'value'};
+            } else {
+                $plate = '';
+                $self->logwarn("No fluidigm_plate AVU found for data ",
+                               "object '", $obj->str, "'");
+            }
+            if ($well_avu) {
+                $well = $well_avu->{'value'};
+            } else {
+                $well = '';
+                $self->logwarn("No fluidigm_well AVU found for data ",
+                               "object '", $obj->str, "'");
+            }
             # Append plate, well, and md5 checksum
             push @fields, $plate, $well, $obj->checksum;
             $self->debug("Appending data object ", $obj->str, " to output");
