@@ -12,7 +12,29 @@ use WTSI::NPG::Genotyping::Fluidigm::AssayResultSet;
 
 our $VERSION = '';
 
+our $EXPECTED_FIELDS_TOTAL = 12;
+our $PLATE_INDEX = 9;
+our $WELL_INDEX = 10;
+our $MD5_INDEX = 11;
+
+
 with 'WTSI::DNAP::Utilities::Loggable';
+
+has 'data_objects' =>
+  (is       => 'ro',
+   isa      => 'ArrayRef[WTSI::NPG::Genotyping::Fluidigm::AssayDataObject]',
+   required => 1,
+   documentation => 'AssayDataObjects representing new results to add to QC',
+);
+
+has 'data_objects_indexed' =>
+  (is       => 'ro',
+   isa      => 'HashRef',
+   lazy     => 1,
+   builder  => '_build_data_objects_indexed',
+   init_arg => undef,
+   documentation => 'Input AssayDataObjects, indexed by plate and well.',
+);
 
 has 'csv_path' =>
   (is       => 'ro',
@@ -21,120 +43,185 @@ has 'csv_path' =>
        'defined, omit CSV input.',
 );
 
-=head2 csv_update_fields
+=head2 csv_fields
 
-  Arg [1]    : ArrayRef[WTSI::NPG::Genotyping::Fluidigm::AssayDataObject]
+  Arg [1]    : WTSI::NPG::Genotyping::Fluidigm::AssayDataObject
 
-  Example    : $qc->csv_update_fields($assay_data_objects);
+  Example    : my $fields = $qc->csv_update_fields($assay_data_object);
 
-  Description: Find updated QC data for the given AssayDataObjects.
-               If the csv_path attribute is defined, and the checksum of an
-               AssayDataObject is already present, do nothing; otherwise,
-               append its CSV fields to the output.
+  Description: Find QC data for the given AssayDataObject, for CSV output.
 
                CSV format consists of the fields returned by the
                summary_string() method of
-               WTSI::NPG::Genotyping::Fluidigm::AssayResultSet,
-               with three extra fields appended.
+               WTSI::NPG::Genotyping::Fluidigm::AssayResultSet;
+               and three additional fields, denoting the Fluidigm
+               plate, Fluidigm well, and md5 checksum.
 
-               The extra fields denote the Fluidigm plate, Fluidigm well,
-               and md5 checksum. The first two are derived from iRODS
-               metadata, and may be an empty string if appropriate
-               metadata is not present.
-
-  Returntype : ArrayRef[ArrayRef] CSV fields for update
+  Returntype : ArrayRef: CSV fields for update
 
 =cut
 
-sub csv_update_fields {
-    my ($self, $assay_data_objects) = @_;
-    if (! defined $assay_data_objects || scalar @{$assay_data_objects} == 0) {
-        $self->logwarn("Empty input to csv_update_fields");
+sub csv_fields {
+    my ($self, $obj) = @_;
+    my @fields = @{$obj->assay_resultset->summary_fields};
+    # Find Fluidigm plate/well from object metadata
+    my ($plate, $well);
+    my $plate_avu = $obj->get_avu($FLUIDIGM_PLATE_NAME);
+    my $well_avu = $obj->get_avu($FLUIDIGM_PLATE_WELL);
+    if ($plate_avu) {
+        $plate = $plate_avu->{'value'};
+    } else {
+        $self->logcroak("$FLUIDIGM_PLATE_NAME AVU not found for data ",
+                        "object '", $obj->str, "'");
     }
-    my $csv_checksums;
-    if (defined $self->csv_path) {
-        $csv_checksums = $self->_read_checksums();
+    if ($well_avu) {
+        $well = $well_avu->{'value'};
+    } else {
+        $self->logcroak("$FLUIDIGM_PLATE_WELL AVU not found for data ",
+                        "object '", $obj->str, "'");
     }
-    my @updates;
-    foreach my $obj (@{$assay_data_objects}) {
-        if (defined $csv_checksums && $csv_checksums->has($obj->checksum)) {
-            $self->debug("Skipping data object ", $obj->str,
-                         " as checksum is already present in CSV");
-        } else {
-            my @fields = @{$obj->assay_resultset->summary_fields};
-            # Find Fluidigm plate/well (if any) from object metadata
-            my ($plate, $well);
-            my $plate_avu = $obj->get_avu($FLUIDIGM_PLATE_NAME);
-            my $well_avu = $obj->get_avu($FLUIDIGM_PLATE_WELL);
-            if ($plate_avu) {
-                $plate = $plate_avu->{'value'};
-            } else {
-                $plate = '';
-                $self->logwarn("$FLUIDIGM_PLATE_NAME AVU not found for data ",
-                               "object '", $obj->str, "'");
-            }
-            if ($well_avu) {
-                $well = $well_avu->{'value'};
-            } else {
-                $well = '';
-                $self->logwarn("$FLUIDIGM_PLATE_WELL AVU not found for data ",
-                               "object '", $obj->str, "'");
-            }
-            # Append plate, well, and md5 checksum
-            push @fields, $plate, $well, $obj->checksum;
-            $self->debug("Appending results for data object ",
-                         $obj->str, " to output");
-            push @updates, \@fields;
-        }
-    }
-    $self->debug('Found ', scalar @updates, ' update(s) for Fluidigm QC');
-    return \@updates;
+    # Append plate, well, and md5 checksum
+    push @fields, $plate, $well, $obj->checksum;
+    return \@fields;
 }
 
-=head2 csv_update_strings
+=head2 csv_string
 
-  Arg [1]    : ArrayRef[WTSI::NPG::Genotyping::Fluidigm::AssayDataObject]
+  Arg [1]    : WTSI::NPG::Genotyping::Fluidigm::AssayDataObject
 
-  Example    : $qc->csv_update_fields($assay_data_objects);
-  Description: Find updated QC data for the given AssayDataObjects.
-               Return strings for CSV output.
-  Returntype : ArrayRef[Str]
+  Example    : my $str = $qc->csv_string($assay_data_object);
+  Description: Find updated QC data for the given AssayDataObject.
+               Return string for CSV output.
+  Returntype : Str
 
 =cut
 
-sub csv_update_strings {
-    my ($self, $assay_data_objects) = @_;
-    my $updates = $self->csv_update_fields($assay_data_objects);
+sub csv_string {
+    my ($self, $assay_data_object) = @_;
+    my $fields = $self->csv_fields($assay_data_object);
     my $csv = Text::CSV->new ( { binary => 1 } );
-    my @update_strings;
-    foreach my $fields (@{$updates}) {
-        my $status = $csv->combine(@{$fields});
-        if (! defined $status) {
-            $self->logcroak("Error combining CSV inputs: '",
+    my $status = $csv->combine(@{$fields});
+    if (! defined $status) {
+        $self->logcroak("Error combining CSV inputs: '",
+                        $csv->error_input, "'");
+    }
+    return $csv->string();
+}
+
+=head2 rewrite_existing_csv
+
+  Arg [1]    : Filehandle for output
+
+  Example    : my $checksums = $qc->rewrite_existing_csv($fh);
+
+  Description: Read the old CSV file, and write an updated version to the
+               given filehandle. Records will be updated if the data_objects
+               attribute has a member with the same plate and well, and a
+               different checksum; otherwise the original record is output
+               unchanged.
+
+               Returns the set of md5 sums for records which have been
+               changed from their original values.
+
+  Returntype : Set::Scalar
+
+=cut
+
+sub rewrite_existing_csv {
+    my ($self, $out) = @_;
+    my $existing_checksums = Set::Scalar->new();
+    my $csv = Text::CSV->new ( { binary => 1 } );
+    open my $in, "<", $self->csv_path ||
+        $self->logcroak("Cannot open CSV path '", $self->csv_path, "'");
+    while (<$in>) {
+        my $original_csv_line = $_;
+        chomp;
+        $csv->parse($_);
+        my @fields = $csv->fields();
+        if (! @fields) {
+            $self->logcroak("Unable to parse CSV line: '",
                             $csv->error_input, "'");
         }
-        push @update_strings, $csv->string();
+        if (scalar @fields != $EXPECTED_FIELDS_TOTAL) {
+            $self->logcroak("Expected ", $EXPECTED_FIELDS_TOTAL,
+                            " fields, found ", scalar @fields,
+                            " from input: ", $_);
+        }
+        my $plate = $fields[$PLATE_INDEX];
+        my $well = $fields[$WELL_INDEX];
+        my $update_obj = $self->data_objects_indexed->{$plate}{$well};
+        if (defined $update_obj) {
+            $existing_checksums->insert($update_obj->checksum);
+            my $md5 = $fields[$MD5_INDEX];
+            if ($md5 eq $update_obj->checksum) {
+                $self->debug('No update for plate ', $plate, ', well ',
+                             $well, '; md5 checksum is unchanged');
+                print $out $original_csv_line;
+            } else {
+                $self->debug('Updating plate ', $plate, ', well ',
+                             $well, ' from data object ',
+                             $update_obj->str);
+                print $out $self->csv_string($update_obj)."\n";
+            }
+        } else {
+            $self->debug('No update for plate ', $plate, ', well ',
+                         $well, '; no corresponding data object was found');
+            print $out $original_csv_line;
+        }
     }
-    return \@update_strings;
+    close $in ||
+        $self->logcroak("Cannot close CSV path '", $self->csv_path, "'");
+    return $existing_checksums;
 }
 
 
-sub _read_checksums {
-    # read checksums from last column of a CSV file
-    # class has no 'checksum' attribute
-    # instead read checksums on the fly, so they should be up to date
-    my ($self,) = @_;
-    my $checksums = Set::Scalar->new;
-    my $csv = Text::CSV->new ( { binary => 1 } );
-    open my $fh, "<", $self->csv_path ||
-        $self->logcroak("Cannot open CSV '", $self->csv_path, "'");
-    while ( my $row = $csv->getline( $fh ) ) {
-        my $checksum = $row->[-1];
-        $checksums->insert($checksum);
+=head2 write_csv
+
+  Arg [1]    : Filehandle for output
+
+  Example    : $qc->write_csv($fh);
+
+  Description: Write an updated CSV to the given filehandle. Output
+               consists of records in the existing CSV file,
+               updated as appropriate; and records for any new data
+               objects which do not appear in the existing file. (If the
+               existing CSV file is not defined, this method simply writes
+               CSV records for all data objects.)
+
+  Returntype : None
+
+=cut
+
+sub write_csv {
+    my ($self, $out) = @_;
+    my $checksums;
+    if (defined $self->csv_path) {
+        $checksums = $self->rewrite_existing_csv($out);
     }
-    close $fh ||
-        $self->logcroak("Cannot close CSV '", $self->csv_path, "'");
-    return $checksums;
+    foreach my $obj (@{$self->data_objects}) {
+        if (defined $checksums && $checksums->has($obj->checksum)) {
+            $self->debug('Object ', $obj->str, 'already exists in CSV');
+        } else {
+            $self->debug('Writing new CSV output for object ', $obj->str);
+            print $out $self->csv_string($obj)."\n";
+        }
+    }
+}
+
+sub _build_data_objects_indexed {
+    my ($self,) = @_;
+    my %indexed;
+    foreach my $obj (@{$self->data_objects}) {
+        my $plate = $obj->get_avu($FLUIDIGM_PLATE_NAME)->{'value'};
+        my $well = $obj->get_avu($FLUIDIGM_PLATE_WELL)->{'value'};
+        if ($indexed{$plate}{$well}) {
+            $self->logcroak("Duplicate (plate, well) = (",
+                            $plate, ", ", $well, ") for data object '",
+                            $obj->str, "'");
+        }
+        $indexed{$plate}{$well} = $obj;
+    }
+    return \%indexed;
 }
 
 

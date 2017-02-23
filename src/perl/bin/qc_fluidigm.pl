@@ -4,6 +4,10 @@ package main;
 
 use strict;
 use warnings;
+use Cwd qw(abs_path);
+use File::Copy qw(cp);
+use File::Temp qw(tempfile);
+use File::Spec::Functions qw(tmpdir);
 use Getopt::Long;
 use Log::Log4perl qw(:levels);
 use Pod::Usage;
@@ -109,7 +113,7 @@ sub run {
                                          [type           => 'csv'],
                                          @filter);
     }
-    $log->info("Received ",  scalar @fluidigm_data,
+    $log->info("Received ", scalar @fluidigm_data,
                " Fluidigm data object paths");
     # Get Fluidigm data objects
     my @fluidigm_data_objects;
@@ -124,25 +128,43 @@ sub run {
                            "iRODS path '", $obj_path, "'");
         };
     }
-    # Write updated QC results
-    my %args;
-    if (defined $old_csv) { $args{'csv_path'} = $old_csv; }
-    my $qc = WTSI::NPG::Genotyping::Fluidigm::QC->new(\%args);
-    my $updates = $qc->csv_update_strings(\@fluidigm_data_objects);
+    # Find output filehandle
     my $fh;
+    my $temp;
     if (defined $new_csv) {
-        $log->debug("Appending output to path '$new_csv'");
-        open $fh, ">>", $new_csv ||
-            $log->logcroak("Cannot open output '", $new_csv, "'")
+        if (defined $old_csv && abs_path($old_csv) eq abs_path($new_csv)) {
+            ($fh, $temp) = tempfile('qc_fluidigm_XXXXXX',
+                                    DIR    => tmpdir(),
+                                    UNLINK => 1, # delete on script exit
+                                );
+            $log->debug("Created temporary file $temp for CSV output");
+        } else {
+            open $fh, ">", $new_csv ||
+                $log->logcroak("Cannot open output '", $new_csv, "'");
+            $log->debug("Opened path $new_csv for CSV output");
+        }
     } else {
         $log->debug("Writing output to STDOUT");
         $fh = *STDOUT;
     }
-    foreach my $update_string (@{$updates}) {
-        print $fh $update_string."\n";
-    }
+    # Write updated QC results
+    my %args = (
+        data_objects => \@fluidigm_data_objects,
+    );
+    if (defined $old_csv) { $args{'csv_path'} = $old_csv; }
+    my $qc = WTSI::NPG::Genotyping::Fluidigm::QC->new(\%args);
+    $qc->write_csv($fh);
     if (defined $new_csv) {
-        close $fh || $log->logcroak("Cannot close output '", $new_csv, "'");
+        close $fh || $log->logcroak("Cannot close CSV output");
+    }
+    if (defined $temp) {
+        my $cp_ok = cp($temp, $new_csv);
+        if ($cp_ok) {
+            $log->debug('Copied temporary file ', $temp, ' to ', $new_csv);
+        } else {
+            $log->logcroak('Failed to copy temporary file ', $temp,
+                           'to ', $new_csv);
+        }
     }
 }
 
@@ -226,23 +248,25 @@ for all the input results.
 
 =item 2. Call rate: Defined as field (8) / field (7), if field (7) is non-zero; zero otherwise.
 
-=item 3. Total calls
+=item 3. Size of resultset (total assay results)
 
-=item 4. Total controls
+=item 4. Total calls
 
-=item 5. Total empty
+=item 5. Total controls
 
-=item 6. Total valid
+=item 6. Total empty
 
-=item 7. Total template assays: Defined as assays which are not empty and not controls.
+=item 7. Total valid
+
+=item 8. Total template assays: Defined as assays which are not empty and not controls.
 
 =item 8. Total template calls: Defined as template assays in (7) which are calls.
 
-=item 9. Fluidigm plate
+=item 10. Fluidigm plate
 
-=item 10. Fluidigm well
+=item 11. Fluidigm well
 
-=item 11. md5 checksum
+=item 12. md5 checksum
 
 =back
 
