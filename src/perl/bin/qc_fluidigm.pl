@@ -185,15 +185,11 @@ Options:
                  --old-csv. Raises an error if --old-csv is not supplied.
                  Incompatible with --new-csv.
   --logconf      A log4perl configuration file. Optional.
-  --new-csv      Path of a CSV file, to which new QC results will be
-                 appended. Incompatible with --in-place. Optional;
-                 if --new-csv and --in-place are not given, output will
-                 be written to STDOUT.
-  --old-csv      Path of a CSV file from which to read existing QC and
-                 checksums. Any Fluidigm result whose md5 checksum appears
-                 in the --old-csv file will be omitted from the output.
-                 Optional; if not given, all QC results will be included
-                 in output.
+  --new-csv      Path of a CSV file for QC output. Optional; if --new-csv
+                 and --in-place are not given, output will be written
+                 to STDOUT.
+  --old-csv      Path of a CSV file from which to read existing QC records.
+                 Optional.
   --query-path   An iRODS path to query for Fluidigm DataObjects. Required,
                  unless iRODS paths are supplied on STDIN using the '-'
                  option.
@@ -202,7 +198,7 @@ Options:
 =head1 DESCRIPTION
 
 Read published Fluidigm genotyping data from iRODS; cross-reference
-with existing QC results, if any; and append QC metrics for new data in CSV
+with existing QC records, if any; and write updated QC records in CSV
 format.
 
 =head2 Input
@@ -210,7 +206,8 @@ format.
 =head3 Fluidigm data
 
 Input data from iRODS may be found via a metadata query, or from paths
-given on STDIN:
+given on STDIN. Note that if data on iRODS is changed while the script
+is running, the changes will not necessarily appear in the output.
 
 =over
 
@@ -224,20 +221,25 @@ and --filter-value options.
 
 =item *
 
-To read from STDIN, terminate the command line with the '-' option to read
-from STDIN. In this mode, the --query-path, --filter-key and --filter-value
-options are invalid.
+To read from STDIN, terminate the command line with the '-' option. In
+this mode, the --query-path, --filter-key and --filter-value options
+are invalid.
 
 =back
 
 =head3 Existing QC results
 
-If desired, specify existing QC results using the --old-csv option. If the
-checksum for a Fluidigm result does I<not> appear in the existing CSV
-file, QC metrics for the result will be included in output.
+If desired, specify existing QC results using the --old-csv option.
 
-If no existing CSV path is given, the script will simply write CSV output
-for all the input results.
+CSV records are identified by their plate and well. If a record in the
+existing CSV has the same plate and well as one of the input iRODS data
+objects, and a different md5 checksum, it will be replaced with a record
+generated from the data object. Otherwise, the original record is output
+unchanged. Order of the existing CSV results is preserved.
+
+If an input data object does not appear in the existing CSV, a record for
+it will be appended to the output. If no existing CSV path is given, the
+script will simply write CSV output for all the inputs.
 
 =head2 Output
 
@@ -247,7 +249,7 @@ for all the input results.
 
 =item 1. Sample identifier
 
-=item 2. Call rate: Defined as field (8) / field (7), if field (7) is non-zero; zero otherwise.
+=item 2. Call rate: Defined as field (9) / field (8), if field (8) is non-zero; zero otherwise.
 
 =item 3. Size of resultset (total assay results)
 
@@ -261,7 +263,7 @@ for all the input results.
 
 =item 8. Total template assays: Defined as assays which are not empty and not controls.
 
-=item 8. Total template calls: Defined as template assays in (7) which are calls.
+=item 9. Total template calls: Defined as template assays in (8) which are calls.
 
 =item 10. Fluidigm plate
 
@@ -271,16 +273,16 @@ for all the input results.
 
 =back
 
-Items 1 through 8 are taken from the fluidigm assay result file, while 9
-through 11 are from iRODS metadata.
+Items 1 through 9 are taken from the fluidigm assay result file, while 10
+through 12 are from iRODS metadata.
 
 =head3 Output location
 
 =over
 
-=item * If the --in-place option is given, the script will append new results to the existing CSV file given by --old-csv.
+=item * If the --in-place option is given, the script will replace the existing CSV file given by --old-csv.
 
-=item * If the --new-csv option is supplied, the script will append to the given file.
+=item * If the --new-csv option is supplied, the script will write to the given file.
 
 =item * If neither option is given, results will be written to STDOUT.
 
