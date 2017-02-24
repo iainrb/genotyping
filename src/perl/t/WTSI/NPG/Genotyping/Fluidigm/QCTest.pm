@@ -8,7 +8,7 @@ use warnings;
 use base qw(WTSI::NPG::Test);
 use File::Copy qw/copy/;
 use File::Temp qw/tempdir/;
-use Test::More tests => 10;
+use Test::More tests => 13;
 use Test::Exception;
 use Text::CSV;
 
@@ -32,10 +32,12 @@ my @irods_paths;
 my $pid = $$;
 my $tmp;
 my $csv_name = 'fluidigm_qc.csv';
+my $csv_name_outdated = 'fluidigm_qc_outdated_md5.csv';
 
 sub make_fixture : Test(setup) {
     $tmp = tempdir('Fluidigm_QC_test_XXXXXX', CLEANUP => 1 );
     copy("./t/fluidigm_qc/$csv_name", $tmp);
+    copy("./t/fluidigm_qc/$csv_name_outdated", $tmp);
     my $irods = WTSI::NPG::iRODS->new;
     $irods_tmp_coll = $irods->add_collection("FluidigmQCTest.$pid");
     $irods->put_collection($data_path, $irods_tmp_coll);
@@ -59,7 +61,7 @@ sub require : Test(1) {
     require_ok('WTSI::NPG::Genotyping::Fluidigm::AssayDataObject');
 }
 
-sub update : Test(4) {
+sub csv_output : Test(5) {
     my $irods = WTSI::NPG::iRODS->new;
     my @data_objects;
     # 1 of the 2 AssayDataObjects is already present in fluidigm_qc.csv
@@ -95,12 +97,15 @@ sub update : Test(4) {
     is_deeply($fields, $expected_fields,
               'Field contents match expected values');
     my $string;
-    lives_ok(sub {$string = $qc->csv_string($data_objects[1])},
+    lives_ok(sub {$string = $qc->csv_string($data_objects[1]); },
              'CSV string found OK');
     my $expected_string = 'XYZ0987654321,0.9231,96,94,70,70,96,26,24,'.
         '1381735059,S02,73ca301a0a9e1b9cf87d4daf59eb2815';
     ok($string eq $expected_string,
        'CSV string contents match expected values');
+    $data_objects[0]->remove_avu($FLUIDIGM_PLATE_WELL, 'S01');
+    dies_ok(sub { $qc->csv_fields($data_objects[0]); },
+            'Dies without required metadata');
 }
 
 
@@ -146,6 +151,53 @@ sub script_metaquery : Test(2) {
     is_deeply($contents, $expected_contents,
               "Script in-place CSV output matches expected values");
 }
+
+sub script_update : Test(2) {
+    # ensure an entry with outdated md5 checksum is replaced
+    my $cmd = "$script --query-path $irods_tmp_coll ".
+        "--old-csv $tmp/fluidigm_qc_outdated_md5.csv ".
+            "--in-place --logconf $logconf --debug";
+    $log->info("Running command '$cmd'");
+    ok(system($cmd)==0, "Script with outdated input exits OK");
+    my $csv = Text::CSV->new ( { binary => 1 } );
+    open my $fh, "<", "$tmp/$csv_name_outdated" ||
+        $log->logcroak("Cannot open input '$tmp/$csv_name_outdated'");
+    my $contents = $csv->getline_all($fh);
+    close $fh ||
+        $log->logcroak("Cannot close input '$tmp/$csv_name_outdated'");
+    my $expected_contents = [
+        [
+            'ABC0123456789',
+            '1.0000',
+            96,
+            96,
+            70,
+            70,
+            96,
+            26,
+            26,
+            '1381735059',
+            'S01',
+            '11413e77cde2a8dcca89705fe5b25a2d', # was 734b53d2
+        ], [
+            'XYZ0987654321',
+            '0.9231',
+            96,
+            94,
+            70,
+            70,
+            96,
+            26,
+            24,
+            '1381735059',
+            'S02',
+            '73ca301a0a9e1b9cf87d4daf59eb2815',
+        ],
+    ];
+    is_deeply($contents, $expected_contents,
+              "Script updated md5 checksum in CSV");
+}
+
 
 sub script_stdin : Test(2) {
     my $fh;
@@ -200,10 +252,6 @@ sub script_stdin : Test(2) {
     is_deeply($contents, $expected_contents,
               "New CSV output from script matches expected values");
 }
-
-## TODO add tests for changed md5 checksum
-## outdated info in CSV, to be replaced by new data object
-
 
 
 1;

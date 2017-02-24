@@ -12,11 +12,10 @@ use WTSI::NPG::Genotyping::Fluidigm::AssayResultSet;
 
 our $VERSION = '';
 
-our $EXPECTED_FIELDS_TOTAL = 12;
 our $PLATE_INDEX = 9;
 our $WELL_INDEX = 10;
 our $MD5_INDEX = 11;
-
+our $EXPECTED_FIELDS_TOTAL = 12;
 
 with 'WTSI::DNAP::Utilities::Loggable';
 
@@ -24,7 +23,7 @@ has 'data_objects' =>
   (is       => 'ro',
    isa      => 'ArrayRef[WTSI::NPG::Genotyping::Fluidigm::AssayDataObject]',
    required => 1,
-   documentation => 'AssayDataObjects representing new results to add to QC',
+   documentation => 'AssayDataObjects for results which may be added to QC',
 );
 
 has 'data_objects_indexed' =>
@@ -39,8 +38,8 @@ has 'data_objects_indexed' =>
 has 'csv_path' =>
   (is       => 'ro',
    isa      => 'Maybe[Str]',
-   documentation => 'Path for input of existing QC results. If not '.
-       'defined, omit CSV input.',
+   documentation => 'Path for input of existing QC results. Optional; '.
+       'if not defined, omit CSV input.',
 );
 
 =head2 csv_fields
@@ -110,18 +109,19 @@ sub csv_string {
 
 =head2 rewrite_existing_csv
 
-  Arg [1]    : Filehandle for output
+  Arg [1]    : Filehandle
 
   Example    : my $checksums = $qc->rewrite_existing_csv($fh);
 
-  Description: Read the old CSV file, and write an updated version to the
-               given filehandle. Records will be updated if the data_objects
-               attribute has a member with the same plate and well, and a
+  Description: Read the existing CSV file, and write an updated version to the
+               given filehandle. Records will be updated if there is a
+               matching data object with the same plate and well, and a
                different checksum; otherwise the original record is output
                unchanged.
 
-               Returns the set of md5 sums for records which have been
-               changed from their original values.
+               Returns the set of md5 sums for data objects which match
+               the plate and well of an existing CSV record -- regardless
+               of whether the md5 sum differs.
 
   Returntype : Set::Scalar
 
@@ -131,6 +131,9 @@ sub rewrite_existing_csv {
     my ($self, $out) = @_;
     my $existing_checksums = Set::Scalar->new();
     my $csv = Text::CSV->new ( { binary => 1 } );
+    my $matched = 0;
+    my $updated = 0;
+    my $total = 0;
     open my $in, "<", $self->csv_path ||
         $self->logcroak("Cannot open CSV path '", $self->csv_path, "'");
     while (<$in>) {
@@ -152,6 +155,7 @@ sub rewrite_existing_csv {
         my $update_obj = $self->data_objects_indexed->{$plate}{$well};
         if (defined $update_obj) {
             $existing_checksums->insert($update_obj->checksum);
+            $matched++;
             my $md5 = $fields[$MD5_INDEX];
             if ($md5 eq $update_obj->checksum) {
                 $self->debug('No update for plate ', $plate, ', well ',
@@ -161,6 +165,7 @@ sub rewrite_existing_csv {
                 $self->debug('Updating plate ', $plate, ', well ',
                              $well, ' from data object ',
                              $update_obj->str);
+                $updated++;
                 print $out $self->csv_string($update_obj)."\n";
             }
         } else {
@@ -168,9 +173,13 @@ sub rewrite_existing_csv {
                          $well, '; no corresponding data object was found');
             print $out $original_csv_line;
         }
+        $total++;
     }
     close $in ||
         $self->logcroak("Cannot close CSV path '", $self->csv_path, "'");
+    $self->info('Rewrote ', $total, ' existing CSV records for Fluidigm ',
+                'QC; matched ', $matched, ' data objects; updated ',
+                $updated, ' records');
     return $existing_checksums;
 }
 
@@ -198,14 +207,17 @@ sub write_csv {
     if (defined $self->csv_path) {
         $checksums = $self->rewrite_existing_csv($out);
     }
+    my $total = 0;
     foreach my $obj (@{$self->data_objects}) {
         if (defined $checksums && $checksums->has($obj->checksum)) {
             $self->debug('Object ', $obj->str, 'already exists in CSV');
         } else {
             $self->debug('Writing new CSV output for object ', $obj->str);
             print $out $self->csv_string($obj)."\n";
+            $total++;
         }
     }
+    $self->info('Wrote ', $total, ' new CSV records for Fluidigm QC');
 }
 
 sub _build_data_objects_indexed {

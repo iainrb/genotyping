@@ -181,13 +181,14 @@ Options:
   --filter-key   Additional filter to limit set of dataObjs acted on.
   --filter-value
   --help         Display help.
-  --in-place     If given, append QC results to the file specified by
+  --in-place     If given, write QC results to the file specified by
                  --old-csv. Raises an error if --old-csv is not supplied.
                  Incompatible with --new-csv.
   --logconf      A log4perl configuration file. Optional.
   --new-csv      Path of a CSV file, to which new QC results will be
-                 appended. Optional; if --new-csv and --in-place are not
-                 given, output will be written to STDOUT.
+                 appended. Incompatible with --in-place. Optional;
+                 if --new-csv and --in-place are not given, output will
+                 be written to STDOUT.
   --old-csv      Path of a CSV file from which to read existing QC and
                  checksums. Any Fluidigm result whose md5 checksum appears
                  in the --old-csv file will be omitted from the output.
