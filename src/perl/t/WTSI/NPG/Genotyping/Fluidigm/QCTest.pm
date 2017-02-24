@@ -108,94 +108,24 @@ sub csv_output : Test(5) {
             'Dies without required metadata');
 }
 
-
 sub script_metaquery : Test(2) {
     my $cmd = "$script --query-path $irods_tmp_coll ".
         "--old-csv $tmp/$csv_name --in-place --logconf $logconf --debug";
     $log->info("Running command '$cmd'");
     ok(system($cmd)==0, "Script with --in-place and metaquery exits OK");
-    my $csv = Text::CSV->new ( { binary => 1 } );
-    open my $fh, "<", "$tmp/$csv_name" ||
-        $log->logcroak("Cannot open input '$tmp/$csv_name'");
-    my $contents = $csv->getline_all($fh);
-    close $fh || $log->logcroak("Cannot close input '$tmp/$csv_name'");
-    my $expected_contents = [
-        [
-            'ABC0123456789',
-            '1.0000',
-            96,
-            96,
-            70,
-            70,
-            96,
-            26,
-            26,
-            '1381735059',
-            'S01',
-            '11413e77cde2a8dcca89705fe5b25a2d',
-        ], [
-            'XYZ0987654321',
-            '0.9231',
-            96,
-            94,
-            70,
-            70,
-            96,
-            26,
-            24,
-            '1381735059',
-            'S02',
-            '73ca301a0a9e1b9cf87d4daf59eb2815',
-        ],
-    ];
-    is_deeply($contents, $expected_contents,
-              "Script in-place CSV output matches expected values");
+    my $msg = 'Script in-place CSV output matches expected values';
+    _validate_csv_output("$tmp/$csv_name", $msg);
 }
 
 sub script_update : Test(2) {
     # ensure an entry with outdated md5 checksum is replaced
     my $cmd = "$script --query-path $irods_tmp_coll ".
-        "--old-csv $tmp/fluidigm_qc_outdated_md5.csv ".
+        "--old-csv $tmp/$csv_name_outdated ".
             "--in-place --logconf $logconf --debug";
     $log->info("Running command '$cmd'");
     ok(system($cmd)==0, "Script with outdated input exits OK");
-    my $csv = Text::CSV->new ( { binary => 1 } );
-    open my $fh, "<", "$tmp/$csv_name_outdated" ||
-        $log->logcroak("Cannot open input '$tmp/$csv_name_outdated'");
-    my $contents = $csv->getline_all($fh);
-    close $fh ||
-        $log->logcroak("Cannot close input '$tmp/$csv_name_outdated'");
-    my $expected_contents = [
-        [
-            'ABC0123456789',
-            '1.0000',
-            96,
-            96,
-            70,
-            70,
-            96,
-            26,
-            26,
-            '1381735059',
-            'S01',
-            '11413e77cde2a8dcca89705fe5b25a2d', # was 734b53d2
-        ], [
-            'XYZ0987654321',
-            '0.9231',
-            96,
-            94,
-            70,
-            70,
-            96,
-            26,
-            24,
-            '1381735059',
-            'S02',
-            '73ca301a0a9e1b9cf87d4daf59eb2815',
-        ],
-    ];
-    is_deeply($contents, $expected_contents,
-              "Script updated md5 checksum in CSV");
+    _validate_csv_output("$tmp/$csv_name_outdated",
+                         'Script updated md5 checksum in CSV');
 }
 
 
@@ -213,13 +143,20 @@ sub script_stdin : Test(2) {
         "--logconf $logconf - < $input_path";
     $log->info("Running command '$cmd'");
     ok(system($cmd)==0, "Script with STDIN and new CSV file exits OK");
+     _validate_csv_output($new_csv, 'Script CSV output OK, input from STDIN');
+}
 
+
+sub _validate_csv_output {
+    # check that CSV output matches the expected values
+    # run an is_deeply test with the given message
+    my ($csv_path, $message, ) = @_;
     # check the CSV output
     my $csv = Text::CSV->new ( { binary => 1 } );
-    open $fh, "<", "$new_csv" ||
-        $log->logcroak("Cannot open input '$new_csv'");
+    open my $fh, "<", "$csv_path" ||
+        $log->logcroak("Cannot open input '$csv_path'");
     my $contents = $csv->getline_all($fh);
-    close $fh || $log->logcroak("Cannot close input '$new_csv'");
+    close $fh || $log->logcroak("Cannot close input '$csv_path'");
     my $expected_contents = [
         [
             'ABC0123456789',
@@ -249,8 +186,7 @@ sub script_stdin : Test(2) {
             '73ca301a0a9e1b9cf87d4daf59eb2815',
         ],
     ];
-    is_deeply($contents, $expected_contents,
-              "New CSV output from script matches expected values");
+    is_deeply($contents, $expected_contents, $message);
 }
 
 
