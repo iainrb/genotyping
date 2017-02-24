@@ -218,6 +218,7 @@ sub write_csv {
         }
     }
     $self->info('Wrote ', $total, ' new CSV records for Fluidigm QC');
+    return 1;
 }
 
 sub _build_data_objects_indexed {
