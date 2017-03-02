@@ -1,4 +1,7 @@
 use utf8;
+use sigtrap qw/die untrapped normal-signals
+               stack-trace any error-signals/;
+# sigtrap ensures tempdir is deleted after control-C or similar
 
 package WTSI::NPG::Genotyping::Fluidigm::Collector;
 
