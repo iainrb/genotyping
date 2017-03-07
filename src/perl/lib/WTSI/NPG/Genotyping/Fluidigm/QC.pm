@@ -23,6 +23,7 @@ has 'csv' =>
   (is       => 'ro',
    isa      => 'Text::CSV',
    init_arg => undef,
+   lazy     => 1,
    default  => sub { return Text::CSV->new ({ binary => 1, }); },
    documentation => 'Object for processing data in CSV format',
 );
