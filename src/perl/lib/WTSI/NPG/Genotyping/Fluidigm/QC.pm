@@ -19,6 +19,14 @@ our $EXPECTED_FIELDS_TOTAL = 12;
 
 with 'WTSI::DNAP::Utilities::Loggable';
 
+has 'csv' =>
+  (is       => 'ro',
+   isa      => 'Text::CSV',
+   init_arg => undef,
+   default  => sub { return Text::CSV->new ( { binary => 1 }; },
+   documentation => 'Object for processing data in CSV format',
+);
+
 has 'data_objects' =>
   (is       => 'ro',
    isa      => 'ArrayRef[WTSI::NPG::Genotyping::Fluidigm::AssayDataObject]',
@@ -98,13 +106,12 @@ sub csv_fields {
 sub csv_string {
     my ($self, $assay_data_object) = @_;
     my $fields = $self->csv_fields($assay_data_object);
-    my $csv = Text::CSV->new ( { binary => 1 } );
-    my $status = $csv->combine(@{$fields});
+    my $status = $self->csv->combine(@{$fields});
     if (! defined $status) {
         $self->logcroak("Error combining CSV inputs: '",
-                        $csv->error_input, "'");
+                        $self->csv->error_input, "'");
     }
-    return $csv->string();
+    return $self->csv->string();
 }
 
 =head2 rewrite_existing_csv
@@ -130,7 +137,6 @@ sub csv_string {
 sub rewrite_existing_csv {
     my ($self, $out) = @_;
     my $existing_checksums = Set::Scalar->new();
-    my $csv = Text::CSV->new ( { binary => 1 } );
     my $matched = 0;
     my $updated = 0;
     my $total = 0;
@@ -139,11 +145,11 @@ sub rewrite_existing_csv {
     while (<$in>) {
         my $original_csv_line = $_;
         chomp;
-        $csv->parse($_);
-        my @fields = $csv->fields();
+        $self->csv->parse($_);
+        my @fields = $self->csv->fields();
         if (! @fields) {
             $self->logcroak("Unable to parse CSV line: '",
-                            $csv->error_input, "'");
+                            $self->csv->error_input, "'");
         }
         if (scalar @fields != $EXPECTED_FIELDS_TOTAL) {
             $self->logcroak("Expected ", $EXPECTED_FIELDS_TOTAL,
@@ -197,6 +203,8 @@ sub rewrite_existing_csv {
                existing CSV file is not defined, this method simply writes
                CSV records for all data objects.)
 
+               Output for new data objects is sorted in (plate, well) order.
+
   Returntype : None
 
 =cut
@@ -208,16 +216,21 @@ sub write_csv {
         $checksums = $self->rewrite_existing_csv($out);
     }
     my $total = 0;
+    my @update_lines;
     foreach my $obj (@{$self->data_objects}) {
         if (defined $checksums && $checksums->has($obj->checksum)) {
             $self->debug('Object ', $obj->str, 'already exists in CSV');
         } else {
-            $self->debug('Writing new CSV output for object ', $obj->str);
-            print $out $self->csv_string($obj)."\n";
+            $self->debug('Finding new CSV output for object ', $obj->str);
+            push @update_lines, $self->csv_string($obj)."\n";
             $total++;
         }
     }
-    $self->info('Wrote ', $total, ' new CSV records for Fluidigm QC');
+    $self->info('Found ', $total, ' new CSV records for Fluidigm QC');
+    my @sorted_lines = sort $self->_by_plate_well @update_lines;
+    $self->debug('Sorted ', $total, ' new records in (plate, well) order');
+    foreach my $line (@sorted_lines) { print $out $line; }
+    $self->debug('Wrote ', $total, ' new records to output');
     return 1;
 }
 
@@ -235,6 +248,28 @@ sub _build_data_objects_indexed {
         $indexed{$plate}{$well} = $obj;
     }
     return \%indexed;
+}
+
+sub _by_plate_well {
+
+    my ($self,) = @_;
+
+    $self->csv->parse($a);
+    my @fields_a = $self->csv->fields();
+    $self->csv->parse($b);
+    my @fields_b = $self->csv->fields();
+
+    my $plate_a = $fields_a[9];
+    my $plate_b = $fields_b[9];
+    my $well_a = $fields_a[10];
+    my $well_b = $fields_b[10];
+
+    my @well_fields_a = split(/S[0]*/, $well_a);
+    my $well_num_a = pop @well_fields_a;
+    my @well_fields_b = split(/S[0]*/, $well_b);
+    my $well_num_b = pop @well_fields_b;
+
+    return $plate_a <=> $plate_b || $well_num_a <=> $well_num_b;
 }
 
 
