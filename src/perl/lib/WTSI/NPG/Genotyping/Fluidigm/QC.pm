@@ -254,6 +254,7 @@ sub _build_data_objects_indexed {
 }
 
 sub _by_plate_well {
+    # return a coderef used to sort CSV lines in (plate, well) order
     my ($self,) = @_;
 
     return sub {
