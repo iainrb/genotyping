@@ -23,7 +23,7 @@ has 'csv' =>
   (is       => 'ro',
    isa      => 'Text::CSV',
    init_arg => undef,
-   default  => sub { return Text::CSV->new ( { binary => 1 }; },
+   default  => sub { return Text::CSV->new ({ binary => 1, }); },
    documentation => 'Object for processing data in CSV format',
 );
 
@@ -227,7 +227,8 @@ sub write_csv {
         }
     }
     $self->info('Found ', $total, ' new CSV records for Fluidigm QC');
-    my @sorted_lines = sort $self->_by_plate_well @update_lines;
+    my $sort_ref = $self->_by_plate_well();
+    my @sorted_lines = sort $sort_ref @update_lines;
     $self->debug('Sorted ', $total, ' new records in (plate, well) order');
     foreach my $line (@sorted_lines) { print $out $line; }
     $self->debug('Wrote ', $total, ' new records to output');
@@ -237,6 +238,7 @@ sub write_csv {
 sub _build_data_objects_indexed {
     my ($self,) = @_;
     my %indexed;
+    $self->debug('Indexing data objects by (plate, well)');
     foreach my $obj (@{$self->data_objects}) {
         my $plate = $obj->get_avu($FLUIDIGM_PLATE_NAME)->{'value'};
         my $well = $obj->get_avu($FLUIDIGM_PLATE_WELL)->{'value'};
@@ -251,25 +253,26 @@ sub _build_data_objects_indexed {
 }
 
 sub _by_plate_well {
-
     my ($self,) = @_;
 
-    $self->csv->parse($a);
-    my @fields_a = $self->csv->fields();
-    $self->csv->parse($b);
-    my @fields_b = $self->csv->fields();
+    return sub {
+        $self->csv->parse($a);
+        my @fields_a = $self->csv->fields();
+	$self->csv->parse($b);
+	my @fields_b = $self->csv->fields();
 
-    my $plate_a = $fields_a[9];
-    my $plate_b = $fields_b[9];
-    my $well_a = $fields_a[10];
-    my $well_b = $fields_b[10];
+	my $plate_a = $fields_a[$PLATE_INDEX];
+	my $plate_b = $fields_b[$PLATE_INDEX];
+	my $well_a = $fields_a[$WELL_INDEX];
+	my $well_b = $fields_b[$WELL_INDEX];
 
-    my @well_fields_a = split(/S[0]*/, $well_a);
-    my $well_num_a = pop @well_fields_a;
-    my @well_fields_b = split(/S[0]*/, $well_b);
-    my $well_num_b = pop @well_fields_b;
+	my @well_fields_a = split(/S[0]*/msx, $well_a);
+	my $well_num_a = pop @well_fields_a;
+	my @well_fields_b = split(/S[0]*/msx, $well_b);
+	my $well_num_b = pop @well_fields_b;
 
-    return $plate_a <=> $plate_b || $well_num_a <=> $well_num_b;
+	return $plate_a <=> $plate_b || $well_num_a <=> $well_num_b;
+    };
 }
 
 
