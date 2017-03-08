@@ -101,6 +101,12 @@ around BUILDARGS => sub {
         my $checksum = $data_obj->checksum;
         my $plate = $data_obj->get_avu($FLUIDIGM_PLATE_NAME)->{'value'};
         my $well = $data_obj->get_avu($FLUIDIGM_PLATE_WELL)->{'value'};
+        if (defined $indexed{$plate}{$well}) {
+            $log->logcroak('Duplicate plate ', $plate, ' and well ',
+                           $well, ' for data objects: ', $obj_path, ', ',
+                           $indexed{$plate}{$well}
+                       );
+        }
         $indexed{$plate}{$well} = $obj_path;
         $checksums{$obj_path} = $checksum;
         $count++;
@@ -286,7 +292,6 @@ sub write_csv {
     }
     my $total = 0;
     my @update_lines;
-
     foreach my $obj_path (@{$self->data_object_paths}) {
         my $obj_checksum = $self->path_checksums->{$obj_path};
         if (defined $checksums && $checksums->has($obj_checksum)) {
@@ -305,23 +310,6 @@ sub write_csv {
     foreach my $line (@sorted_lines) { print $out $line; }
     $self->debug('Wrote ', $total, ' new records to output');
     return 1;
-}
-
-sub _build_data_objects_indexed {
-    my ($self,) = @_;
-    my %indexed;
-    $self->debug('Indexing data objects by (plate, well)');
-    foreach my $obj (@{$self->data_objects}) {
-        my $plate = $obj->get_avu($FLUIDIGM_PLATE_NAME)->{'value'};
-        my $well = $obj->get_avu($FLUIDIGM_PLATE_WELL)->{'value'};
-        if ($indexed{$plate}{$well}) {
-            $self->logcroak("Duplicate (plate, well) = (",
-                            $plate, ", ", $well, ") for data object '",
-                            $obj->str, "'");
-        }
-        $indexed{$plate}{$well} = $obj;
-    }
-    return \%indexed;
 }
 
 sub _by_plate_well {
