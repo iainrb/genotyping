@@ -299,7 +299,7 @@ sub write_csv {
     foreach my $obj_path (@{$self->data_object_paths}) {
         my $obj_checksum = $self->path_checksums->{$obj_path};
         if (defined $checksums && $checksums->has($obj_checksum)) {
-            $self->debug('Object ', $obj_path, 'already exists in CSV');
+            $self->debug('Object ', $obj_path, ' already exists in CSV');
         } else {
             $self->debug('Finding new CSV output for object ', $obj_path);
             my $data_obj = $self->_get_fluidigm_data_obj($obj_path);
