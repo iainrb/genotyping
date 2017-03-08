@@ -58,14 +58,18 @@ has 'path_checksums' =>
   (is       => 'ro',
    isa      => 'HashRef[Str]',
    documentation => 'The md5 checksum for each input iRODS path. '.
-       'Automatically populated by the BUILDARGS method',
+       'Automatically populated by the BUILDARGS method. Do not supply '.
+       'this attribute as an argument; any value supplied will be '.
+       'overwritten by BUILDARGS.',
 );
 
 has 'paths_indexed' =>
   (is       => 'ro',
    isa      => 'HashRef[HashRef[Str]]',
    documentation => 'Input iRODS paths, indexed by plate and well. '.
-       'Automatically populated by the BUILDARGS method',
+       'Automatically populated by the BUILDARGS method. Do not supply '.
+       'this attribute as an argument; any value supplied will be '.
+       'overwritten by BUILDARGS.',
 );
 
 around BUILDARGS => sub {
