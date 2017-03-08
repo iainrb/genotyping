@@ -3,12 +3,14 @@ package WTSI::NPG::Genotyping::Fluidigm::QC;
 
 use Moose;
 
+use Log::Log4perl;
 use Set::Scalar;
 use Text::CSV;
+use Try::Tiny;
 
+use WTSI::NPG::iRODS;
 use WTSI::NPG::iRODS::Metadata;
 use WTSI::NPG::Genotyping::Fluidigm::AssayDataObject;
-use WTSI::NPG::Genotyping::Fluidigm::AssayResultSet;
 
 our $VERSION = '';
 
@@ -16,6 +18,8 @@ our $PLATE_INDEX = 9;
 our $WELL_INDEX = 10;
 our $MD5_INDEX = 11;
 our $EXPECTED_FIELDS_TOTAL = 12;
+
+our $REPORTING_BLOCK_SIZE = 1000;
 
 with 'WTSI::DNAP::Utilities::Loggable';
 
@@ -28,28 +32,90 @@ has 'csv' =>
    documentation => 'Object for processing data in CSV format',
 );
 
-has 'data_objects' =>
-  (is       => 'ro',
-   isa      => 'ArrayRef[WTSI::NPG::Genotyping::Fluidigm::AssayDataObject]',
-   required => 1,
-   documentation => 'AssayDataObjects for results which may be added to QC',
-);
-
-has 'data_objects_indexed' =>
-  (is       => 'ro',
-   isa      => 'HashRef',
-   lazy     => 1,
-   builder  => '_build_data_objects_indexed',
-   init_arg => undef,
-   documentation => 'Input AssayDataObjects, indexed by plate and well.',
-);
-
 has 'csv_path' =>
   (is       => 'ro',
    isa      => 'Maybe[Str]',
    documentation => 'Path for input of existing QC results. Optional; '.
        'if not defined, omit CSV input.',
 );
+
+has 'data_object_paths' =>
+  (is       => 'ro',
+   isa      => 'ArrayRef[Str]',
+   required => 1,
+   documentation => 'iRODS paths for results which may be added to QC',
+);
+
+has 'irods' =>
+  (is       => 'ro',
+   isa      => 'WTSI::NPG::iRODS',
+   required => 1,
+   default  => sub {
+     return WTSI::NPG::iRODS->new;
+ });
+
+has 'path_checksums' =>
+  (is       => 'ro',
+   isa      => 'HashRef[Str]',
+   documentation => 'The md5 checksum for each input iRODS path. '.
+       'Automatically populated by the BUILDARGS method',
+);
+
+has 'paths_indexed' =>
+  (is       => 'ro',
+   isa      => 'HashRef[HashRef[Str]]',
+   documentation => 'Input iRODS paths, indexed by plate and well. '.
+       'Automatically populated by the BUILDARGS method',
+);
+
+around BUILDARGS => sub {
+    # populate paths_indexed and path_checksums attributes
+    # do so on a single pass, for greater efficiency on iRODS calls
+    my ($orig, $class, @args) = @_;
+    my %args;
+    if ( @args == 1 && ref $args[0] ) { # hashref argument
+        %args = %{$args[0]};
+    } else { # hash argument
+        %args = @args;
+    }
+    my %checksums;
+    my %indexed;
+    my $irods = $args{'irods'} || WTSI::NPG::iRODS->new;
+    my $log =
+        Log::Log4perl->get_logger("WTSI::NPG::Genotyping::Fluidigm::QC");
+    my @data_object_paths = @{$args{'data_object_paths'}};
+    my $total = scalar @data_object_paths;
+    $log->info('Finding (plate, well) index and checksum for ', $total,
+               ' data object paths');
+    my $count = 0;
+    foreach my $obj_path (@data_object_paths) {
+        # can't use _get_fluidigm_data_obj, as it is a class method
+        my $data_obj;
+        try {
+            $data_obj =  WTSI::NPG::Genotyping::Fluidigm::AssayDataObject->new
+                ($irods, $obj_path);
+        } catch {
+            $log->logcroak("Unable to create Fluidigm DataObject from ",
+                           "iRODS path '", $obj_path, "'");
+        };
+        my $checksum = $data_obj->checksum;
+        my $plate = $data_obj->get_avu($FLUIDIGM_PLATE_NAME)->{'value'};
+        my $well = $data_obj->get_avu($FLUIDIGM_PLATE_WELL)->{'value'};
+        $indexed{$plate}{$well} = $obj_path;
+        $checksums{$obj_path} = $checksum;
+        $count++;
+        if ($count % $REPORTING_BLOCK_SIZE == 0) {
+            $log->debug('Found (plate, well) index and checksum for ',
+                        $count, ' of ', $total, ' data object paths');
+        }
+    }
+    $log->info('Finished processing ', $total, 'data object paths');
+    $args{'path_checksums'} = \%checksums;
+    $args{'paths_indexed'} = \%indexed;
+
+    return $class->$orig(%args);
+};
+
 
 =head2 csv_fields
 
@@ -159,21 +225,23 @@ sub rewrite_existing_csv {
         }
         my $plate = $fields[$PLATE_INDEX];
         my $well = $fields[$WELL_INDEX];
-        my $update_obj = $self->data_objects_indexed->{$plate}{$well};
-        if (defined $update_obj) {
-            $existing_checksums->insert($update_obj->checksum);
+        my $update_path = $self->paths_indexed->{$plate}{$well};
+        if (defined $update_path) {
+            my $checksum = $self->path_checksums->{$update_path};
+            $existing_checksums->insert($checksum);
             $matched++;
             my $md5 = $fields[$MD5_INDEX];
-            if ($md5 eq $update_obj->checksum) {
+            if ($md5 eq $checksum) {
                 $self->debug('No update for plate ', $plate, ', well ',
                              $well, '; md5 checksum is unchanged');
                 print $out $original_csv_line;
             } else {
                 $self->debug('Updating plate ', $plate, ', well ',
-                             $well, ' from data object ',
-                             $update_obj->str);
-                $updated++;
+                             $well, ' from data object path',
+                             $update_path);
+                my $update_obj = $self->_get_fluidigm_data_obj($update_path);
                 print $out $self->csv_string($update_obj)."\n";
+                $updated++;
             }
         } else {
             $self->debug('No update for plate ', $plate, ', well ',
@@ -218,12 +286,15 @@ sub write_csv {
     }
     my $total = 0;
     my @update_lines;
-    foreach my $obj (@{$self->data_objects}) {
-        if (defined $checksums && $checksums->has($obj->checksum)) {
-            $self->debug('Object ', $obj->str, 'already exists in CSV');
+
+    foreach my $obj_path (@{$self->data_object_paths}) {
+        my $obj_checksum = $self->path_checksums->{$obj_path};
+        if (defined $checksums && $checksums->has($obj_checksum)) {
+            $self->debug('Object ', $obj_path, 'already exists in CSV');
         } else {
-            $self->debug('Finding new CSV output for object ', $obj->str);
-            push @update_lines, $self->csv_string($obj)."\n";
+            $self->debug('Finding new CSV output for object ', $obj_path);
+            my $data_obj = $self->_get_fluidigm_data_obj($obj_path);
+            push @update_lines, $self->csv_string($data_obj)."\n";
             $total++;
         }
     }
@@ -275,6 +346,20 @@ sub _by_plate_well {
 
 	return $plate_a <=> $plate_b || $well_num_a <=> $well_num_b;
     };
+}
+
+sub _get_fluidigm_data_obj {
+    # safely create a Fluidigm AssayDataObject from path
+    my ($self, $obj_path) = @_;
+    my $data_obj;
+    try {
+        $data_obj = WTSI::NPG::Genotyping::Fluidigm::AssayDataObject->new
+            ($self->irods, $obj_path);
+    } catch {
+        $self->logcroak("Unable to create Fluidigm DataObject from ",
+                        "iRODS path '", $obj_path, "'");
+    };
+    return $data_obj;
 }
 
 
