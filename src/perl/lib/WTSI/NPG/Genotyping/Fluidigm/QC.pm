@@ -23,6 +23,15 @@ our $REPORTING_BLOCK_SIZE = 1000;
 
 with 'WTSI::DNAP::Utilities::Loggable';
 
+has 'checksums_by_path' =>
+  (is       => 'ro',
+   isa      => 'HashRef[Str]',
+   documentation => 'The md5 checksum for each input iRODS path. '.
+       'Automatically populated by the BUILDARGS method. Do not supply '.
+       'this attribute as an argument; any value input will be '.
+       'overwritten by BUILDARGS.',
+);
+
 has 'csv' =>
   (is       => 'ro',
    isa      => 'Text::CSV',
@@ -54,21 +63,12 @@ has 'irods' =>
      return WTSI::NPG::iRODS->new;
  });
 
-has 'path_checksums' =>
-  (is       => 'ro',
-   isa      => 'HashRef[Str]',
-   documentation => 'The md5 checksum for each input iRODS path. '.
-       'Automatically populated by the BUILDARGS method. Do not supply '.
-       'this attribute as an argument; any value supplied will be '.
-       'overwritten by BUILDARGS.',
-);
-
-has 'paths_indexed' =>
+has 'paths_by_plate_well' =>
   (is       => 'ro',
    isa      => 'HashRef[HashRef[Str]]',
    documentation => 'Input iRODS paths, indexed by plate and well. '.
        'Automatically populated by the BUILDARGS method. Do not supply '.
-       'this attribute as an argument; any value supplied will be '.
+       'this attribute as an argument; any value input will be '.
        'overwritten by BUILDARGS.',
 );
 
@@ -77,11 +77,8 @@ around BUILDARGS => sub {
     # do so on a single pass, for greater efficiency on iRODS calls
     my ($orig, $class, @args) = @_;
     my %args;
-    if ( @args == 1 && ref $args[0] ) { # hashref argument
-        %args = %{$args[0]};
-    } else { # hash argument
-        %args = @args;
-    }
+    if ( @args == 1 && ref $args[0] ) { %args = %{$args[0]}; }
+    else { %args = @args; }
     my %checksums;
     my %indexed;
     my $irods = $args{'irods'} || WTSI::NPG::iRODS->new;
@@ -93,7 +90,7 @@ around BUILDARGS => sub {
                ' data object paths');
     my $count = 0;
     foreach my $obj_path (@data_object_paths) {
-        # can't use _get_fluidigm_data_obj, as it is a class method
+        # can't use _get_fluidigm_data_obj, as it is an instance method
         my $data_obj;
         try {
             $data_obj =  WTSI::NPG::Genotyping::Fluidigm::AssayDataObject->new
@@ -112,6 +109,10 @@ around BUILDARGS => sub {
                        );
         }
         $indexed{$plate}{$well} = $obj_path;
+        if (defined $checksums{$obj_path}) {
+            $log->logwarn('Path ', $obj_path, ' appears more than once ',
+                          'in input ArrayRef');
+        }
         $checksums{$obj_path} = $checksum;
         $count++;
         if ($count % $REPORTING_BLOCK_SIZE == 0) {
@@ -119,9 +120,9 @@ around BUILDARGS => sub {
                         $count, ' of ', $total, ' data object paths');
         }
     }
-    $log->info('Finished processing ', $total, 'data object paths');
-    $args{'path_checksums'} = \%checksums;
-    $args{'paths_indexed'} = \%indexed;
+    $log->info('Finished processing ', $total, ' data object paths');
+    $args{'checksums_by_path'} = \%checksums;
+    $args{'paths_by_plate_well'} = \%indexed;
 
     return $class->$orig(%args);
 };
@@ -203,9 +204,8 @@ sub csv_string {
                different checksum; otherwise the original record is output
                unchanged.
 
-               Returns the set of md5 sums for data objects which match
-               the plate and well of an existing CSV record -- regardless
-               of whether the md5 sum differs.
+               Returns the set of data object paths which match
+               the plate and well of an existing CSV record.
 
   Returntype : Set::Scalar
 
@@ -213,7 +213,12 @@ sub csv_string {
 
 sub rewrite_existing_csv {
     my ($self, $out) = @_;
-    my $existing_checksums = Set::Scalar->new();
+    my $existing_paths = Set::Scalar->new();
+    if (! defined $self->csv_path) {
+        $self->logwarn('Existing CSV path is not defined; cannot rewrite ',
+                       'previous results');
+        return $existing_paths;
+    }
     my $matched = 0;
     my $updated = 0;
     my $total = 0;
@@ -235,13 +240,12 @@ sub rewrite_existing_csv {
         }
         my $plate = $fields[$PLATE_INDEX];
         my $well = $fields[$WELL_INDEX];
-        my $update_path = $self->paths_indexed->{$plate}{$well};
+        my $update_path = $self->paths_by_plate_well->{$plate}{$well};
         if (defined $update_path) {
-            my $checksum = $self->path_checksums->{$update_path};
-            $existing_checksums->insert($checksum);
+            $existing_paths->insert($update_path);
             $matched++;
             my $md5 = $fields[$MD5_INDEX];
-            if ($md5 eq $checksum) {
+            if ($md5 eq $self->checksums_by_path->{$update_path}) {
                 $self->debug('No update for plate ', $plate, ', well ',
                              $well, '; md5 checksum is unchanged');
                 print $out $original_csv_line;
@@ -265,7 +269,7 @@ sub rewrite_existing_csv {
     $self->info('Rewrote ', $total, ' existing CSV records for Fluidigm ',
                 'QC; matched ', $matched, ' data objects; updated ',
                 $updated, ' records');
-    return $existing_checksums;
+    return $existing_paths;
 }
 
 
@@ -290,15 +294,15 @@ sub rewrite_existing_csv {
 
 sub write_csv {
     my ($self, $out) = @_;
-    my $checksums;
+    my $existing_paths; # data object paths which match existing CSV records
     if (defined $self->csv_path) {
-        $checksums = $self->rewrite_existing_csv($out);
+        $existing_paths = $self->rewrite_existing_csv($out);
     }
     my $total = 0;
     my @update_lines;
     foreach my $obj_path (@{$self->data_object_paths}) {
-        my $obj_checksum = $self->path_checksums->{$obj_path};
-        if (defined $checksums && $checksums->has($obj_checksum)) {
+        my $obj_checksum = $self->checksums_by_path->{$obj_path};
+        if (defined $existing_paths && $existing_paths->has($obj_path)) {
             $self->debug('Object ', $obj_path, ' already exists in CSV');
         } else {
             $self->debug('Finding new CSV output for object ', $obj_path);
@@ -323,9 +327,18 @@ sub _by_plate_well {
     return sub {
         $self->csv->parse($a);
         my @fields_a = $self->csv->fields();
+        if (scalar @fields_a != $EXPECTED_FIELDS_TOTAL) {
+            $self->logcroak("Expected ", $EXPECTED_FIELDS_TOTAL,
+                            " fields, found ", scalar @fields_a,
+                            " from input: ", $a);
+        }
 	$self->csv->parse($b);
 	my @fields_b = $self->csv->fields();
-
+        if (scalar @fields_b != $EXPECTED_FIELDS_TOTAL) {
+            $self->logcroak("Expected ", $EXPECTED_FIELDS_TOTAL,
+                            " fields, found ", scalar @fields_b,
+                            " from input: ", $b);
+        }
 	my $plate_a = $fields_a[$PLATE_INDEX];
 	my $plate_b = $fields_b[$PLATE_INDEX];
 	my $well_a = $fields_a[$WELL_INDEX];
@@ -372,8 +385,10 @@ WTSI::NPG::Genotyping::Fluidigm::QC
 
 A class to process quality control metrics for Fluidigm results.
 
-Find QC metric values for CSV output. Ensure QC values for the
-same data object are not written more than once, by comparing md5 checksums.
+Find QC metric values from iRODS for CSV output. Optionally, can supply a
+CSV file with existing QC records, which will be updated if the md5 sum
+has changed. QC records are identified by plate and well; values for the
+same plate and well are not output more than once.
 
 =head1 AUTHOR
 

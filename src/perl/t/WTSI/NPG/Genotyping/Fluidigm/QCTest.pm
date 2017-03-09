@@ -109,13 +109,14 @@ sub rewrite_existing : Test(2) {
     my $output_path = "$tmp/rewritten.csv";
     open my $fh, ">", $output_path ||
         $log->logcroak("Cannot open CSV output ", $output_path);
-    my $got_md5 = $qc->rewrite_existing_csv($fh);
+    my $got_paths = $qc->rewrite_existing_csv($fh);
     close $fh || $log->logcroak("Cannot close CSV output ", $output_path);
-    my $expected_md5 = Set::Scalar->new();
-    my $md5 = '11413e77cde2a8dcca89705fe5b25a2d';
-    $expected_md5->insert($md5);
-    is_deeply($got_md5, $expected_md5, 'MD5 sets match');
+    my $expected_paths = Set::Scalar->new();
+    my $path = $irods_tmp_coll.'/1381735059/S01_1381735059.csv';
+    $expected_paths->insert($path);
+    is_deeply($got_paths, $expected_paths, 'Data object paths match');
     my $contents = read_file($output_path);
+    my $md5 = '11413e77cde2a8dcca89705fe5b25a2d';
     my $expected = 'ABC0123456789,1.0000,96,96,70,70,96,26,26,1381735059'.
         ",S01,$md5\n";
     cmp_ok($contents, 'eq', $expected, 'Rewritten CSV file contents OK');
