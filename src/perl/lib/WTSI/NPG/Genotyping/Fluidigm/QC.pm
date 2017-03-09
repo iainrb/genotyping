@@ -102,18 +102,17 @@ around BUILDARGS => sub {
         my $checksum = $data_obj->checksum;
         my $plate = $data_obj->get_avu($FLUIDIGM_PLATE_NAME)->{'value'};
         my $well = $data_obj->get_avu($FLUIDIGM_PLATE_WELL)->{'value'};
-        if (defined $indexed{$plate}{$well}) {
+        if (defined $checksums{$obj_path}) {
+            $log->logcroak('iRODS data object path ', $obj_path,
+                           ' appears more than once in inputs');
+        } elsif (defined $indexed{$plate}{$well}) {
             $log->logcroak('Duplicate plate ', $plate, ' and well ',
                            $well, ' for data objects: ', $obj_path, ', ',
                            $indexed{$plate}{$well}
                        );
         }
-        $indexed{$plate}{$well} = $obj_path;
-        if (defined $checksums{$obj_path}) {
-            $log->logwarn('Path ', $obj_path, ' appears more than once ',
-                          'in input ArrayRef');
-        }
         $checksums{$obj_path} = $checksum;
+        $indexed{$plate}{$well} = $obj_path;
         $count++;
         if ($count % $REPORTING_BLOCK_SIZE == 0) {
             $log->debug('Found (plate, well) index and checksum for ',
@@ -142,7 +141,7 @@ around BUILDARGS => sub {
                and three additional fields, denoting the Fluidigm
                plate, Fluidigm well, and md5 checksum.
 
-  Returntype : ArrayRef: CSV fields for update
+  Returntype : [ArrayRef] CSV fields for update
 
 =cut
 
@@ -196,7 +195,7 @@ sub csv_string {
 
   Arg [1]    : Filehandle
 
-  Example    : my $checksums = $qc->rewrite_existing_csv($fh);
+  Example    : my $data_object_paths = $qc->rewrite_existing_csv($fh);
 
   Description: Read the existing CSV file, and write an updated version to the
                given filehandle. Records will be updated if there is a
@@ -227,17 +226,7 @@ sub rewrite_existing_csv {
     while (<$in>) {
         my $original_csv_line = $_;
         chomp;
-        $self->csv->parse($_);
-        my @fields = $self->csv->fields();
-        if (! @fields) {
-            $self->logcroak("Unable to parse CSV line: '",
-                            $self->csv->error_input, "'");
-        }
-        if (scalar @fields != $EXPECTED_FIELDS_TOTAL) {
-            $self->logcroak("Expected ", $EXPECTED_FIELDS_TOTAL,
-                            " fields, found ", scalar @fields,
-                            " from input: ", $_);
-        }
+        my @fields = $self->_parse_csv_fields($_);
         my $plate = $fields[$PLATE_INDEX];
         my $well = $fields[$WELL_INDEX];
         my $update_path = $self->paths_by_plate_well->{$plate}{$well};
@@ -288,7 +277,7 @@ sub rewrite_existing_csv {
 
                Output for new data objects is sorted in (plate, well) order.
 
-  Returntype : None
+  Returntype : Returns True on completion
 
 =cut
 
@@ -301,7 +290,6 @@ sub write_csv {
     my $total = 0;
     my @update_lines;
     foreach my $obj_path (@{$self->data_object_paths}) {
-        my $obj_checksum = $self->checksums_by_path->{$obj_path};
         if (defined $existing_paths && $existing_paths->has($obj_path)) {
             $self->debug('Object ', $obj_path, ' already exists in CSV');
         } else {
@@ -325,25 +313,12 @@ sub _by_plate_well {
     my ($self,) = @_;
 
     return sub {
-        $self->csv->parse($a);
-        my @fields_a = $self->csv->fields();
-        if (scalar @fields_a != $EXPECTED_FIELDS_TOTAL) {
-            $self->logcroak("Expected ", $EXPECTED_FIELDS_TOTAL,
-                            " fields, found ", scalar @fields_a,
-                            " from input: ", $a);
-        }
-	$self->csv->parse($b);
-	my @fields_b = $self->csv->fields();
-        if (scalar @fields_b != $EXPECTED_FIELDS_TOTAL) {
-            $self->logcroak("Expected ", $EXPECTED_FIELDS_TOTAL,
-                            " fields, found ", scalar @fields_b,
-                            " from input: ", $b);
-        }
+        my @fields_a = $self->_parse_csv_fields($a);
+	my @fields_b = $self->_parse_csv_fields($b);
 	my $plate_a = $fields_a[$PLATE_INDEX];
 	my $plate_b = $fields_b[$PLATE_INDEX];
 	my $well_a = $fields_a[$WELL_INDEX];
 	my $well_b = $fields_b[$WELL_INDEX];
-
 	my @well_fields_a = split(/S[0]*/msx, $well_a);
 	my $well_num_a = pop @well_fields_a;
 	my @well_fields_b = split(/S[0]*/msx, $well_b);
@@ -367,6 +342,22 @@ sub _get_fluidigm_data_obj {
     return $data_obj;
 }
 
+sub _parse_csv_fields {
+    my ($self, $input) = @_;
+    # parse input string and check it is a valid Fluidigm QC record
+    $self->csv->parse($input);
+    my @fields = $self->csv->fields();
+    if (! @fields) {
+        $self->logcroak("Unable to parse CSV input: '",
+                        $self->csv->error_input(), "'");
+    } elsif (scalar @fields != $EXPECTED_FIELDS_TOTAL) {
+        $self->logcroak("Expected ", $EXPECTED_FIELDS_TOTAL,
+                        " fields, found ", scalar @fields,
+                        " from input: ", $input);
+    }
+    return @fields;
+}
+
 
 __PACKAGE__->meta->make_immutable;
 
@@ -386,9 +377,12 @@ WTSI::NPG::Genotyping::Fluidigm::QC
 A class to process quality control metrics for Fluidigm results.
 
 Find QC metric values from iRODS for CSV output. Optionally, can supply a
-CSV file with existing QC records, which will be updated if the md5 sum
-has changed. QC records are identified by plate and well; values for the
-same plate and well are not output more than once.
+CSV file with existing QC records, which will be updated if the checksum of
+the corresponding iRODS data object has changed.
+
+Output consists of any existing records in their original order, followed
+by new records in (plate, well) order. Each (plate, well) pair will have
+exactly one record in the output.
 
 =head1 AUTHOR
 
