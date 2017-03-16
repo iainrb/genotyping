@@ -285,6 +285,8 @@ sub write_csv {
     sub _build_checksums_by_path {
         my ($self,) = @_;
         if (! %meta_by_path) {
+            $self->debug('No metadata found for checksums; ',
+                         'populating from iRODS');
             $self->_populate_meta_by_path();
         }
         my %checksums_by_path;
@@ -303,6 +305,8 @@ sub write_csv {
     sub _build_paths_by_plate_well {
         my ($self,) = @_;
         if (! %meta_by_path) {
+            $self->debug('No metadata found for plate/well; ',
+                         'populating from iRODS');
             $self->_populate_meta_by_path();
         }
         my %paths_by_plate_well;
