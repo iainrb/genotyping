@@ -71,60 +71,6 @@ has 'paths_by_plate_well' =>
    documentation => 'Input iRODS paths, indexed by plate and well. ',
 );
 
-# around BUILDARGS => sub {
-#     # populate paths_indexed and path_checksums attributes
-#     # do so on a single pass, for greater efficiency on iRODS calls
-#     my ($orig, $class, @args) = @_;
-#     my %args;
-#     if ( @args == 1 && ref $args[0] ) { %args = %{$args[0]}; }
-#     else { %args = @args; }
-#     my %checksums;
-#     my %indexed;
-#     my $irods = $args{'irods'} || WTSI::NPG::iRODS->new;
-#     my $log =
-#         Log::Log4perl->get_logger("WTSI::NPG::Genotyping::Fluidigm::QC");
-#     my @data_object_paths = @{$args{'data_object_paths'}};
-#     my $total = scalar @data_object_paths;
-#     $log->info('Finding (plate, well) index and checksum for ', $total,
-#                ' data object paths');
-#     my $count = 0;
-#     foreach my $obj_path (@data_object_paths) {
-#         # can't use _get_fluidigm_data_obj, as it is an instance method
-#         my $data_obj;
-#         try {
-#             $data_obj =  WTSI::NPG::Genotyping::Fluidigm::AssayDataObject->new
-#                 ($irods, $obj_path);
-#         } catch {
-#             $log->logcroak("Unable to create Fluidigm DataObject from ",
-#                            "iRODS path '", $obj_path, "'");
-#         };
-#         my $checksum = $data_obj->checksum;
-#         my $plate = $data_obj->get_avu($FLUIDIGM_PLATE_NAME)->{'value'};
-#         my $well = $data_obj->get_avu($FLUIDIGM_PLATE_WELL)->{'value'};
-#         if (defined $checksums{$obj_path}) {
-#             $log->logcroak('iRODS data object path ', $obj_path,
-#                            ' appears more than once in inputs');
-#         } elsif (defined $indexed{$plate}{$well}) {
-#             $log->logcroak('Duplicate plate ', $plate, ' and well ',
-#                            $well, ' for data objects: ', $obj_path, ', ',
-#                            $indexed{$plate}{$well}
-#                        );
-#         }
-#         $checksums{$obj_path} = $checksum;
-#         $indexed{$plate}{$well} = $obj_path;
-#         $count++;
-#         if ($count % $REPORTING_BLOCK_SIZE == 0) {
-#             $log->debug('Found (plate, well) index and checksum for ',
-#                         $count, ' of ', $total, ' data object paths');
-#         }
-#     }
-#     $log->info('Finished processing ', $total, ' data object paths');
-#     $args{'checksums_by_path'} = \%checksums;
-#     $args{'paths_by_plate_well'} = \%indexed;
-
-#     return $class->$orig(%args);
-# };
-
 
 =head2 csv_fields
 
