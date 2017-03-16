@@ -26,10 +26,10 @@ with 'WTSI::DNAP::Utilities::Loggable';
 has 'checksums_by_path' =>
   (is       => 'ro',
    isa      => 'HashRef[Str]',
-   documentation => 'The md5 checksum for each input iRODS path. '.
-       'Automatically populated by the BUILDARGS method. Do not supply '.
-       'this attribute as an argument; any value input will be '.
-       'overwritten by BUILDARGS.',
+   init_arg => undef,
+   lazy     => 1,
+   builder  => '_build_checksums_by_path',
+   documentation => 'The md5 checksum for each input iRODS path. ',
 );
 
 has 'csv' =>
@@ -58,73 +58,72 @@ has 'data_object_paths' =>
 has 'irods' =>
   (is       => 'ro',
    isa      => 'WTSI::NPG::iRODS',
-   required => 1,
-   default  => sub {
-     return WTSI::NPG::iRODS->new;
- });
+   lazy     => 1,
+   builder  => '_build_irods',
+);
 
 has 'paths_by_plate_well' =>
   (is       => 'ro',
    isa      => 'HashRef[HashRef[Str]]',
-   documentation => 'Input iRODS paths, indexed by plate and well. '.
-       'Automatically populated by the BUILDARGS method. Do not supply '.
-       'this attribute as an argument; any value input will be '.
-       'overwritten by BUILDARGS.',
+   init_arg => undef,
+   lazy     => 1,
+   builder  => '_build_paths_by_plate_well',
+   documentation => 'Input iRODS paths, indexed by plate and well. ',
 );
 
-around BUILDARGS => sub {
-    # populate paths_indexed and path_checksums attributes
-    # do so on a single pass, for greater efficiency on iRODS calls
-    my ($orig, $class, @args) = @_;
-    my %args;
-    if ( @args == 1 && ref $args[0] ) { %args = %{$args[0]}; }
-    else { %args = @args; }
-    my %checksums;
-    my %indexed;
-    my $irods = $args{'irods'} || WTSI::NPG::iRODS->new;
-    my $log =
-        Log::Log4perl->get_logger("WTSI::NPG::Genotyping::Fluidigm::QC");
-    my @data_object_paths = @{$args{'data_object_paths'}};
-    my $total = scalar @data_object_paths;
-    $log->info('Finding (plate, well) index and checksum for ', $total,
-               ' data object paths');
-    my $count = 0;
-    foreach my $obj_path (@data_object_paths) {
-        # can't use _get_fluidigm_data_obj, as it is an instance method
-        my $data_obj;
-        try {
-            $data_obj =  WTSI::NPG::Genotyping::Fluidigm::AssayDataObject->new
-                ($irods, $obj_path);
-        } catch {
-            $log->logcroak("Unable to create Fluidigm DataObject from ",
-                           "iRODS path '", $obj_path, "'");
-        };
-        my $checksum = $data_obj->checksum;
-        my $plate = $data_obj->get_avu($FLUIDIGM_PLATE_NAME)->{'value'};
-        my $well = $data_obj->get_avu($FLUIDIGM_PLATE_WELL)->{'value'};
-        if (defined $checksums{$obj_path}) {
-            $log->logcroak('iRODS data object path ', $obj_path,
-                           ' appears more than once in inputs');
-        } elsif (defined $indexed{$plate}{$well}) {
-            $log->logcroak('Duplicate plate ', $plate, ' and well ',
-                           $well, ' for data objects: ', $obj_path, ', ',
-                           $indexed{$plate}{$well}
-                       );
-        }
-        $checksums{$obj_path} = $checksum;
-        $indexed{$plate}{$well} = $obj_path;
-        $count++;
-        if ($count % $REPORTING_BLOCK_SIZE == 0) {
-            $log->debug('Found (plate, well) index and checksum for ',
-                        $count, ' of ', $total, ' data object paths');
-        }
-    }
-    $log->info('Finished processing ', $total, ' data object paths');
-    $args{'checksums_by_path'} = \%checksums;
-    $args{'paths_by_plate_well'} = \%indexed;
+# around BUILDARGS => sub {
+#     # populate paths_indexed and path_checksums attributes
+#     # do so on a single pass, for greater efficiency on iRODS calls
+#     my ($orig, $class, @args) = @_;
+#     my %args;
+#     if ( @args == 1 && ref $args[0] ) { %args = %{$args[0]}; }
+#     else { %args = @args; }
+#     my %checksums;
+#     my %indexed;
+#     my $irods = $args{'irods'} || WTSI::NPG::iRODS->new;
+#     my $log =
+#         Log::Log4perl->get_logger("WTSI::NPG::Genotyping::Fluidigm::QC");
+#     my @data_object_paths = @{$args{'data_object_paths'}};
+#     my $total = scalar @data_object_paths;
+#     $log->info('Finding (plate, well) index and checksum for ', $total,
+#                ' data object paths');
+#     my $count = 0;
+#     foreach my $obj_path (@data_object_paths) {
+#         # can't use _get_fluidigm_data_obj, as it is an instance method
+#         my $data_obj;
+#         try {
+#             $data_obj =  WTSI::NPG::Genotyping::Fluidigm::AssayDataObject->new
+#                 ($irods, $obj_path);
+#         } catch {
+#             $log->logcroak("Unable to create Fluidigm DataObject from ",
+#                            "iRODS path '", $obj_path, "'");
+#         };
+#         my $checksum = $data_obj->checksum;
+#         my $plate = $data_obj->get_avu($FLUIDIGM_PLATE_NAME)->{'value'};
+#         my $well = $data_obj->get_avu($FLUIDIGM_PLATE_WELL)->{'value'};
+#         if (defined $checksums{$obj_path}) {
+#             $log->logcroak('iRODS data object path ', $obj_path,
+#                            ' appears more than once in inputs');
+#         } elsif (defined $indexed{$plate}{$well}) {
+#             $log->logcroak('Duplicate plate ', $plate, ' and well ',
+#                            $well, ' for data objects: ', $obj_path, ', ',
+#                            $indexed{$plate}{$well}
+#                        );
+#         }
+#         $checksums{$obj_path} = $checksum;
+#         $indexed{$plate}{$well} = $obj_path;
+#         $count++;
+#         if ($count % $REPORTING_BLOCK_SIZE == 0) {
+#             $log->debug('Found (plate, well) index and checksum for ',
+#                         $count, ' of ', $total, ' data object paths');
+#         }
+#     }
+#     $log->info('Finished processing ', $total, ' data object paths');
+#     $args{'checksums_by_path'} = \%checksums;
+#     $args{'paths_by_plate_well'} = \%indexed;
 
-    return $class->$orig(%args);
-};
+#     return $class->$orig(%args);
+# };
 
 
 =head2 csv_fields
@@ -308,6 +307,80 @@ sub write_csv {
     return 1;
 }
 
+{
+    # Block structure enables %meta_by_path to be shared between two
+    # builder methods. This allows metadata to be gathered on only one
+    # pass through iRODS, while at the same time having lazy attributes.
+
+    my %meta_by_path;
+
+    sub _populate_meta_by_path {
+        my ($self,) = @_;
+        my $total = scalar @{$self->data_object_paths};
+        $self->info('Finding (checksum, plate, well) metadata for ', $total,
+                    ' data object paths');
+        my $count = 0;
+        foreach my $obj_path (@{$self->data_object_paths}) {
+            my $data_obj = $self->_get_fluidigm_data_obj($obj_path);
+            my $checksum = $data_obj->checksum;
+            my $plate = $data_obj->get_avu($FLUIDIGM_PLATE_NAME)->{'value'};
+            my $well = $data_obj->get_avu($FLUIDIGM_PLATE_WELL)->{'value'};
+            $meta_by_path{$obj_path} = [$checksum, $plate, $well];
+            $count++;
+            if ($count % $REPORTING_BLOCK_SIZE == 0) {
+                $self->debug('Found (plate, well) index and checksum for ',
+                             $count, ' of ', $total, ' data object paths');
+            }
+        }
+        $self->info('Finished processing ', $total, ' data object paths');
+        return 1;
+    }
+
+    sub _build_checksums_by_path {
+        my ($self,) = @_;
+        if (! %meta_by_path) {
+            $self->_populate_meta_by_path();
+        }
+        my %checksums_by_path;
+        foreach my $obj_path (@{$self->data_object_paths}) {
+            my $values = $meta_by_path{$obj_path};
+            my ($checksum, $plate, $well) = @{$values};
+            if (defined $checksums_by_path{$obj_path}) {
+                $self->logcroak('iRODS data object path ', $obj_path,
+                                ' appears more than once in inputs');
+            }
+            $checksums_by_path{$obj_path} = $checksum;
+        }
+        return \%checksums_by_path;
+    }
+
+    sub _build_paths_by_plate_well {
+        my ($self,) = @_;
+        if (! %meta_by_path) {
+            $self->_populate_meta_by_path();
+        }
+        my %paths_by_plate_well;
+        foreach my $obj_path (@{$self->data_object_paths}) {
+            my $values = $meta_by_path{$obj_path};
+            my ($checksum, $plate, $well) = @{$values};
+            if (defined $paths_by_plate_well{$plate}{$well}) {
+                $self->logcroak('Duplicate plate ', $plate, ' and well ',
+                                $well, ' for data objects: ', $obj_path, ', ',
+                                $paths_by_plate_well{$plate}{$well}
+                            );
+            }
+            $paths_by_plate_well{$plate}{$well} = $obj_path;
+        }
+        return \%paths_by_plate_well;
+    }
+}
+
+sub _build_irods {
+    # use instead of a default, to allow irods attribute to be lazy
+    my ($self,) = @_;
+    return WTSI::NPG::iRODS->new;
+}
+
 sub _by_plate_well {
     # return a coderef used to sort CSV lines in (plate, well) order
     my ($self,) = @_;
@@ -337,7 +410,7 @@ sub _get_fluidigm_data_obj {
             ($self->irods, $obj_path);
     } catch {
         $self->logcroak("Unable to create Fluidigm DataObject from ",
-                        "iRODS path '", $obj_path, "'");
+                        "iRODS path '", $obj_path, "': $_");
     };
     return $data_obj;
 }
