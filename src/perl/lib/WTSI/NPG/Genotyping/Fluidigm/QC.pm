@@ -3,7 +3,6 @@ package WTSI::NPG::Genotyping::Fluidigm::QC;
 
 use Moose;
 
-use Log::Log4perl;
 use Set::Scalar;
 use Text::CSV;
 use Try::Tiny;
