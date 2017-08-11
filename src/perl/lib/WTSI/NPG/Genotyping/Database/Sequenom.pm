@@ -6,11 +6,49 @@ package WTSI::NPG::Genotyping::Database::Sequenom;
 use Carp;
 use Moose;
 
+use List::Util qw[uniq];
+
 our $VERSION = '';
 
 extends 'WTSI::NPG::Database';
 
 with 'WTSI::NPG::Database::DBI';
+
+
+=head2 find_plates_from_sample_names
+
+  Arg [1]    : [ArrayRef] sample names
+
+  Example    : my @plates = @{$db->find_plates_from_sample_names($samples)}
+  Description: Find sorted, distinct plate names corresponding to the
+               given list of sample names.
+  Returntype : ArrayRef[Str]
+
+=cut
+
+sub find_plates_from_sample_names {
+    my ($self, $samples) = @_;
+    my @plates;
+    foreach my $sample (@{$samples}) {
+        my $query =
+            qq(SELECT
+                 plate
+               FROM SEQUENOM.SR_ALLELOTYPE_2
+               WHERE
+                 sample = ?);
+        $self->debug("Executing: '$query' with args [$sample]");
+        my $sth = $self->dbh->prepare($query);
+        $sth->execute($sample);
+        while (my $row = $sth->fetchrow_arrayref) {
+            push(@plates, $row->[0]);
+            $self->debug("Found ", $row->[0]);
+        }
+    }
+    my @distinct_plates = uniq @plates;
+    my @sorted = sort @distinct_plates;
+    return \@sorted;
+}
+
 
 =head2 find_finished_plate_names
 
