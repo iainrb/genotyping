@@ -31,7 +31,7 @@ sub find_plates_from_sample_names {
     my @plates;
     foreach my $sample (@{$samples}) {
         my $query =
-            qq(SELECT
+            qq(SELECT DISTINCT
                  plate
                FROM SEQUENOM.SR_ALLELOTYPE_2
                WHERE
@@ -39,16 +39,57 @@ sub find_plates_from_sample_names {
         $self->debug("Executing: '$query' with args [$sample]");
         my $sth = $self->dbh->prepare($query);
         $sth->execute($sample);
+        my $plates = 0;
         while (my $row = $sth->fetchrow_arrayref) {
             push(@plates, $row->[0]);
             $self->debug("Found ", $row->[0]);
+            print STDERR $sample."\t".$row->[0]."\n";
+            $plates++;
         }
+        $self->info("Found ", $plates, " plates for sample ", $sample);
+        #if ($plates==0) { print STDERR $sample."\n"; }
     }
     my @distinct_plates = uniq @plates;
     my @sorted = sort @distinct_plates;
     return \@sorted;
 }
 
+
+=head2 find_plates_wells_from_sample_names
+
+  Arg [1]    : [ArrayRef] sample names
+
+  Example    : my @plates = @{$db->find_plates_from_sample_names($samples)}
+  Description: Find sorted, distinct plate names corresponding to the
+               given list of sample names.
+  Returntype : ArrayRef[ArrayRef[Str]]
+
+=cut
+
+sub find_plates_wells_from_sample_names {
+    my ($self, $samples) = @_;
+    my @results;
+    foreach my $sample (@{$samples}) {
+        my $query =
+            qq(SELECT DISTINCT
+                 plate, well
+               FROM SEQUENOM.SR_ALLELOTYPE_2
+               WHERE
+                 sample = ?);
+        $self->debug("Executing: '$query' with args [$sample]");
+        my $sth = $self->dbh->prepare($query);
+        $sth->execute($sample);
+        my $plates = 0;
+        while (my $row = $sth->fetchrow_arrayref) {
+            my $plate = $row->[0];
+            my $well = $row->[1];
+            push(@results, [$sample, $plate, $well]);
+            $plates++;
+        }
+        $self->info("Found ", $plates, " plates for sample ", $sample);
+    }
+    return \@results;
+}
 
 =head2 find_finished_plate_names
 
