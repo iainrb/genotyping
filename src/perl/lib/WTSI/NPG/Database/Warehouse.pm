@@ -19,6 +19,45 @@ with 'WTSI::NPG::Database::DBI', 'WTSI::DNAP::Utilities::Cacheable';
 
 my $meta = __PACKAGE__->meta;
 
+# one-off function to find study/studies for a given sample
+sub find_studies_groups_for_sample {
+    my ($self, $sample_id) = @_;
+
+    my @studies;
+
+    my $query =
+        qq(SELECT DISTINCT
+         aq.study_internal_id AS study_id,
+         st.data_access_group AS access_group
+       FROM
+         current_samples sm,
+         current_studies st,
+         current_aliquots aq
+       WHERE
+         sm.sanger_sample_id = ?
+         AND aq.sample_internal_id = sm.internal_id
+         AND st.internal_id = aq.study_internal_id
+);
+
+    $self->trace("Executing: '$query' with args [$sample_id]");
+
+    my $sth = $self->dbh->prepare($query);
+    $sth->execute($sample_id);
+
+    while (my $row = $sth->fetchrow_hashref) {
+        my $study = $row->{'study_id'};
+        my $group = $row->{'access_group'} || 'None';
+        push(@studies, [$study, $group]);
+    }
+
+    if (scalar @studies == 0) {
+        $self->logwarn('No studies for sample', $sample_id);
+    }
+    return \@studies;
+}
+
+
+
 =head2 find_plate
 
   Arg [1]    : string
