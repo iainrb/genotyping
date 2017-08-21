@@ -1,0 +1,20 @@
+
+Author: Iain Bancarz <ib5@sanger.ac.uk>
+
+This is a branch for troubleshooting Sequenom upload of older data (2009-10).
+It was set up in response to ticket RT#586714 and is not intended for
+merging to the main wtsi-npg/devel branch.
+
+Additional scripts in this branch include:
+
+- find_sequenom_plate_by_sample.pl
+- find_sequenom_plate_well_by_sample.pl
+- find_sequenom_study_group_by_sample.pl
+- find_sequenom_study_sample_details.pl
+- update_selected_sequenom_metadata.pl
+
+Relevant queries have been added to the Sequenom (mspec2) and Sequencescape
+database modules.
+
+The 'update' script adds sample name, sample ID, and study AVUs and group
+read permission to given iRODS paths.
